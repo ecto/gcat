@@ -1,0 +1,12 @@
+[package]
+name = "gcat-viz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Visualization kernels — chaos game, GC skew, 2-D histograms"
+
+[dependencies]
+gcat = { workspace = true }
+
+[dev-dependencies]
+gcat-io = { workspace = true }

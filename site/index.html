@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gcat — cat for genomes</title>
+<meta name="description" content="Drop a genome in your browser. Chaos game k-mer maps, GC skew, read quality — computed locally in WebAssembly. Nothing is uploaded.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+:root{--bg:250 250 250;--txt:26 26 26;--muted:102 102 102;--accent:180 83 9;--surface:240 240 240;--line:220 220 218}
+@media (prefers-color-scheme:dark){:root{--bg:9 9 11;--txt:250 250 250;--muted:113 113 122;--accent:245 158 11;--surface:24 24 27;--line:39 39 42}}
+*{box-sizing:border-box}
+body{margin:0;background:rgb(var(--bg));color:rgb(var(--txt));
+  font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;line-height:1.6;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:3rem 1.5rem 5rem}
+h1{font-size:2.5rem;font-weight:600;margin:0 0 .25rem;letter-spacing:-.02em}
+h2{font-size:1.1rem;font-weight:600;margin:0 0 .25rem}
+.sub{color:rgb(var(--muted));margin:0 0 2rem;font-size:1.05rem}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.accent{color:rgb(var(--accent))}
+.drop{border:1.5px dashed rgb(var(--line));border-radius:12px;padding:2.5rem 1.5rem;text-align:center;
+  transition:border-color .15s,background .15s;cursor:pointer;background:rgb(var(--surface)/.4)}
+.drop.hot{border-color:rgb(var(--accent));background:rgb(var(--accent)/.06)}
+.drop p{margin:.35rem 0}
+.samples{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center;margin-top:1rem}
+button{font:inherit;font-size:.85rem;padding:.35rem .8rem;border:1px solid rgb(var(--line));
+  border-radius:6px;background:rgb(var(--bg));color:rgb(var(--txt));cursor:pointer}
+button:hover{border-color:rgb(var(--accent));color:rgb(var(--accent))}
+button:disabled{opacity:.45;cursor:default;border-color:rgb(var(--line));color:rgb(var(--muted))}
+.bar{height:3px;background:rgb(var(--line));border-radius:2px;overflow:hidden;margin:1.25rem 0 0}
+.bar>i{display:block;height:100%;width:0;background:rgb(var(--accent));transition:width .1s linear}
+.status{font-size:.85rem;color:rgb(var(--muted));margin-top:.6rem;min-height:1.2em}
+.panels{display:grid;gap:1.25rem;margin-top:2rem}
+@media(min-width:820px){.panels{grid-template-columns:1fr 1fr}.full{grid-column:1/-1}}
+.card{border:1px solid rgb(var(--line));border-radius:12px;padding:1.25rem;background:rgb(var(--surface)/.4)}
+.card p.note{color:rgb(var(--muted));font-size:.85rem;margin:.25rem 0 1rem}
+canvas{width:100%;height:auto;display:block;border-radius:8px;image-rendering:pixelated;
+  background:rgb(var(--surface))}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:.85rem 1rem}
+.stat b{display:block;font-size:1.25rem;font-weight:600;font-family:ui-monospace,monospace;letter-spacing:-.02em}
+.stat span{font-size:.75rem;color:rgb(var(--muted));text-transform:lowercase}
+.hide{display:none}
+.ctl{display:flex;gap:.5rem;align-items:center;margin-top:.85rem;font-size:.8rem;color:rgb(var(--muted));flex-wrap:wrap}
+input[type=range]{flex:1;min-width:110px;accent-color:rgb(var(--accent))}
+.finding{border-left:2px solid rgb(var(--accent));padding:.5rem 0 .5rem .85rem;margin-top:1rem;font-size:.9rem}
+.finding b{font-family:ui-monospace,monospace}
+footer{margin-top:3.5rem;padding-top:1.5rem;border-top:1px solid rgb(var(--line));
+  color:rgb(var(--muted));font-size:.85rem}
+a{color:rgb(var(--accent))}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 class="mono">gcat</h1>
+  <p class="sub">cat for genomes. Drop a FASTA or FASTQ below &mdash; it is read in your browser and never leaves this machine.</p>
+
+  <div class="drop" id="drop">
+    <p><b>Drop a genome here</b></p>
+    <p style="color:rgb(var(--muted));font-size:.9rem">or click to choose &mdash; .fa .fasta .fq .fastq</p>
+    <div class="samples">
+      <button data-s="phix174.fa">phiX174 &middot; 5 kb</button>
+      <button data-s="lambda.fa">lambda &middot; 49 kb</button>
+      <button data-s="sars2.fa">SARS-CoV-2 &middot; 30 kb</button>
+      <button data-s="ecoli.fa">E. coli &middot; 4.6 Mb</button>
+      <button data-s="sample.fq">synthetic reads &middot; FASTQ</button>
+    </div>
+    <input type="file" id="file" class="hide" accept=".fa,.fasta,.fna,.fq,.fastq,.txt">
+  </div>
+  <div class="bar"><i id="prog"></i></div>
+  <div class="status mono" id="status">ready</div>
+
+  <div class="panels hide" id="panels">
+    <div class="card full">
+      <h2>Summary</h2>
+      <p class="note">Computed in one streaming pass.</p>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="card">
+      <h2>Chaos game k-mer map</h2>
+      <p class="note" id="cgrNote">Every pixel is one k-mer.</p>
+      <canvas id="cgr"></canvas>
+      <div class="ctl">
+        <label for="gamma">contrast</label>
+        <input type="range" id="gamma" min="15" max="100" value="40">
+        <button id="pal">ember</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Cumulative GC skew</h2>
+      <p class="note">Where the curve turns marks where replication starts.</p>
+      <canvas id="skew"></canvas>
+      <div id="oriC"></div>
+    </div>
+
+    <div class="card full hide" id="histCard">
+      <h2>Read length vs quality</h2>
+      <p class="note">Length on a log axis, mean Phred on the vertical. Reveals whether the long reads are also the good ones.</p>
+      <canvas id="hist"></canvas>
+    </div>
+  </div>
+
+  <footer>
+    <p><b>Nothing is uploaded.</b> The file is read with the browser's File API and processed by
+    <span class="mono">gcat</span> compiled to WebAssembly &mdash; the same <span class="mono">no_std</span> Rust
+    that runs on a laptop or next to a sequencer. There is no server to send it to.</p>
+    <p><a href="https://github.com/ecto/gcat">github.com/ecto/gcat</a> &middot; built on <a href="https://github.com/ecto/tang">tang</a></p>
+  </footer>
+</div>
+
+<script type="module">
+import init, { Analyzer } from './pkg/gcat_wasm.js';
+
+const $ = id => document.getElementById(id);
+const status = $('status'), prog = $('prog'), panels = $('panels');
+let wasm, analyzer, palette = 0, rafPending = false;
+const PALETTES = ['ember', 'ice', 'mono'];
+
+const fmt = n => n >= 1e9 ? (n/1e9).toFixed(2)+' G' : n >= 1e6 ? (n/1e6).toFixed(2)+' M'
+  : n >= 1e3 ? (n/1e3).toFixed(1)+' k' : String(Math.round(n));
+const bp = n => Math.round(n).toLocaleString();
+
+init().then(m => { wasm = m; status.textContent = 'ready'; });
+
+// Zero-copy: wrap the analyzer's RGBA buffer in an ImageData over wasm memory.
+function blit(canvas, ptr, w, h) {
+  const bytes = new Uint8ClampedArray(wasm.memory.buffer, ptr, w * h * 4);
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').putImageData(new ImageData(bytes, w, h), 0, 0);
+}
+
+function drawCgr() {
+  const g = $('gamma').valueAsNumber / 100;
+  analyzer.render_cgr(palette, g);
+  const n = analyzer.cgr_size();
+  blit($('cgr'), analyzer.pixels_ptr(), n, n);
+  const k = analyzer.cgr_order();
+  $('cgrNote').textContent =
+    `Every pixel is one ${k}-mer, ${(analyzer.cgr_sparsity()*100).toFixed(1)}% unseen. Corners: A bottom-left, C top-left, G top-right, T bottom-right.`;
+}
+
+function drawHist() {
+  if (!analyzer.is_fastq() || analyzer.hist_total() === 0) return;
+  $('histCard').classList.remove('hide');
+  analyzer.render_hist(palette, 0.45);
+  blit($('hist'), analyzer.pixels_ptr(), analyzer.hist_cols(), analyzer.hist_rows());
+}
+
+function drawSkew() {
+  const c = $('skew'), pts = analyzer.skew_curve();
+  const W = 600, H = 300, pad = 28, top = 44;
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  const css = getComputedStyle(document.body);
+  const ink = css.color;
+  const accent = css.getPropertyValue('--accent').trim();
+  ctx.clearRect(0, 0, W, H);
+  if (pts.length < 4) return;
+
+  let lo = Infinity, hi = -Infinity, maxX = 0;
+  for (let i = 0; i < pts.length; i += 2) {
+    maxX = Math.max(maxX, pts[i]);
+    lo = Math.min(lo, pts[i+1]); hi = Math.max(hi, pts[i+1]);
+  }
+  const span = (hi - lo) || 1;
+  const X = v => pad + (v / (maxX || 1)) * (W - pad * 2);
+  const Y = v => H - pad - ((v - lo) / span) * (H - pad - top);
+
+  ctx.globalAlpha = .25; ctx.strokeStyle = ink; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(W - pad, Y(0)); ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  ctx.strokeStyle = `rgb(${accent})`; ctx.lineWidth = 2;
+  ctx.lineJoin = 'round'; ctx.beginPath();
+  for (let i = 0; i < pts.length; i += 2) {
+    const x = X(pts[i]), y = Y(pts[i+1]);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  const o = analyzer.origin(), t = analyzer.terminus();
+  const mark = (pos, label, dash) => {
+    if (pos < 0) return;
+    ctx.save();
+    ctx.setLineDash(dash); ctx.globalAlpha = .55; ctx.strokeStyle = ink; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(X(pos), top - 10); ctx.lineTo(X(pos), H - pad + 4); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = ink; ctx.globalAlpha = .7;
+    ctx.font = '11px ui-monospace, monospace';
+    ctx.textAlign = X(pos) > W / 2 ? 'right' : 'left';
+    ctx.fillText(label, X(pos) + (X(pos) > W / 2 ? -6 : 6), top - 16);
+    ctx.globalAlpha = 1;
+  };
+  mark(o, 'origin', [4, 3]);
+  mark(t, 'terminus', [1, 3]);
+
+  $('oriC').innerHTML = o < 0 ? '' :
+    `<div class="finding">Replication origin predicted at <b>${bp(o)} bp</b>, terminus at <b>${bp(t)} bp</b>.
+     <span style="color:rgb(var(--muted))">Found by counting G and C. No alignment, no reference.</span></div>`;
+}
+
+function drawStats() {
+  const L = analyzer.length_stats();
+  const q = analyzer.mean_quality();
+  const items = [
+    ['records', fmt(analyzer.records())],
+    ['bases', fmt(analyzer.bases())],
+    ['GC', (analyzer.gc_fraction() * 100).toFixed(2) + '%'],
+    ['longest', bp(L[4])],
+    ['N50', bp(L[5])],
+  ];
+  if (analyzer.ambiguous() > 0) items.push(['ambiguous', fmt(analyzer.ambiguous())]);
+  if (q >= 0) items.push(['mean Q', q.toFixed(1)]);
+  $('stats').innerHTML = items
+    .map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
+}
+
+function paint() { drawStats(); drawCgr(); drawSkew(); drawHist(); }
+
+// Coalesce mid-stream repaints through rAF so parsing is not throttled by
+// drawing. The final paint is synchronous: rAF does not fire in a background
+// tab, and a result that only appears when you switch back is a result you
+// cannot trust.
+function redraw() {
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(() => { rafPending = false; paint(); });
+}
+
+async function analyze(stream, total, label) {
+  panels.classList.remove('hide');
+  $('histCard').classList.add('hide');
+  // Order 9 gives a 512-square: every 9-mer, one per pixel.
+  analyzer = new Analyzer(9, 10000);
+  const reader = stream.getReader();
+  let read = 0, t0 = performance.now(), lastPaint = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    analyzer.push(value);
+    read += value.length;
+    prog.style.width = (total ? (read / total * 100) : 50).toFixed(1) + '%';
+    // Repaint a few times a second so the page fills in as the file streams.
+    // Deliberately no finish() here — it closes the in-progress record, which
+    // would split one long sequence into a new "read" at every repaint.
+    if (performance.now() - lastPaint > 250) {
+      lastPaint = performance.now();
+      redraw();
+      status.textContent = `${label} — ${fmt(read)}B read`;
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+  analyzer.finish();
+  paint();
+  prog.style.width = '100%';
+  const ms = performance.now() - t0;
+  const mbs = (read / 1e6) / (ms / 1000);
+  status.textContent = `${label} — ${fmt(analyzer.bases())} bases in ${ms.toFixed(0)} ms (${mbs.toFixed(0)} MB/s), entirely in this tab`;
+}
+
+function handleFile(f) {
+  status.textContent = 'reading…';
+  analyze(f.stream(), f.size, f.name);
+}
+
+$('drop').addEventListener('click', e => { if (e.target.tagName !== 'BUTTON') $('file').click(); });
+$('file').addEventListener('change', e => e.target.files[0] && handleFile(e.target.files[0]));
+['dragover','dragenter'].forEach(ev => $('drop').addEventListener(ev, e => {
+  e.preventDefault(); $('drop').classList.add('hot');
+}));
+['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => {
+  e.preventDefault(); $('drop').classList.remove('hot');
+}));
+$('drop').addEventListener('drop', e => e.dataTransfer.files[0] && handleFile(e.dataTransfer.files[0]));
+
+document.querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', async () => {
+  status.textContent = `fetching ${b.dataset.s}…`;
+  try {
+    const res = await fetch('data/' + b.dataset.s);
+    if (!res.ok) throw new Error(res.status);
+    await analyze(res.body, +res.headers.get('content-length') || 0, b.dataset.s);
+  } catch (err) {
+    status.textContent = `could not load ${b.dataset.s} — run scripts/fetch-data.sh`;
+  }
+}));
+
+$('gamma').addEventListener('input', () => analyzer && drawCgr());
+$('pal').addEventListener('click', () => {
+  palette = (palette + 1) % 3;
+  $('pal').textContent = PALETTES[palette];
+  if (analyzer) { drawCgr(); drawHist(); }
+});
+</script>
+</body>
+</html>

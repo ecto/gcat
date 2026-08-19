@@ -32,6 +32,8 @@ at genomics.
 | **`gcat`** | Core types — `Base`, 2-bit packed `Seq`, rolling `Kmer`. `no_std`. |
 | **`gcat-io`** | Streaming FASTA/FASTQ readers and writers. |
 | **`gcat-signal`** | Raw nanopore signal — med/MAD scaling, overlapped windowing, tensor handoff. `no_std`. |
+| **`gcat-viz`** | Visualization kernels — chaos game, GC skew, 2-D histograms. `no_std`. |
+| **`gcat-wasm`** | Browser bindings. Streaming analysis, zero-copy pixel buffers. |
 | **`gcat-cli`** | The `gcat` binary. |
 
 `gcat` and `gcat-signal` build for `wasm32-unknown-unknown`, which is the
@@ -56,6 +58,38 @@ scale it, build a tensor, take a CTC gradient, decode back to DNA.
 
 That test needs `--features tang` **and** a tang checkout carrying CTC. Until
 that lands on tang's default branch, the default build skips it.
+
+## The browser demo
+
+```bash
+./scripts/fetch-data.sh
+wasm-pack build crates/gcat-wasm --target web --out-dir ../../site/pkg --release
+python3 -m http.server 8731 --directory site
+```
+
+Drop a FASTA or FASTQ on the page. It is read with the File API and processed
+in WebAssembly — there is no server to send it to. E. coli's 4.6 Mb streams
+through in about 120 ms in a tab.
+
+Three views, all computed in one pass:
+
+**Chaos game k-mer map.** Each base pulls a point halfway toward its corner of
+a square. The usual description makes this sound like a random walk, but after
+`k` jumps the position depends only on the last `k` bases — so a 2^k square is
+exactly the histogram of every k-mer, laid out so that k-mers sharing a suffix
+sit near each other. Zooming in is looking at longer k-mers. E. coli fills its
+9-mer grid with visible structure; random sequence renders as flat noise.
+
+**Cumulative GC skew.** Where the curve turns marks where DNA replication
+starts. On E. coli it puts the origin at 3,920,000 bp against a published oriC
+of 3,925,744 — within one window, from counting G and C. No alignment, no
+reference, no database.
+
+**Read length against quality.** A 2-D histogram rather than a scatter, so it
+holds up at ten million reads. Answers the question neither axis answers alone:
+are the long reads also the good ones?
+
+The wasm bundle is 31 KB.
 
 ## Test data
 
@@ -115,6 +149,14 @@ averages, and converts back.
 **Med/MAD, not mean/stddev.** Nanopore traces are full of real outliers —
 stalls, blockages, adapter. The median does not chase them. Both are
 implemented; the test suite asserts the difference.
+
+**Pixels cross the boundary as a pointer.** The kernels write RGBA straight
+into WebAssembly memory and JavaScript wraps that buffer in an `ImageData`, so a
+megapixel image costs one pass and no serialisation.
+
+**Kernels are histograms on purpose.** Bounded integer accumulators updated by a
+local rule — the shape that maps to a GPU storage buffer and an atomic
+increment without a rewrite, for when this moves to `tang-gpu`.
 
 **A file that will not open is an error.** Reading it as an empty stream would
 make `gcat stats typo.fa` report zero records and exit 0, which is worse than

@@ -4,6 +4,8 @@ members = [
     "crates/gcat",
     "crates/gcat-io",
     "crates/gcat-signal",
+    "crates/gcat-viz",
+    "crates/gcat-wasm",
     "crates/gcat-cli",
 ]
 
@@ -17,6 +19,7 @@ repository = "https://github.com/ecto/gcat"
 gcat = { version = "0.1.0", path = "crates/gcat" }
 gcat-io = { version = "0.1.0", path = "crates/gcat-io" }
 gcat-signal = { version = "0.1.0", path = "crates/gcat-signal" }
+gcat-viz = { version = "0.1.0", path = "crates/gcat-viz" }
 
 # tang is unpublished; side-by-side checkout at ../tang
 tang = { path = "../tang/crates/tang" }
