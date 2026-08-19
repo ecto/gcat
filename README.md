@@ -48,6 +48,15 @@ the field and the thing this stack is unusually suited to, since it is a
 convolutional/recurrent network over a 1-D signal, which tang already has the
 layers for.
 
+The blocker there was CTC — the loss that trains a sequence model when nobody
+has told you which input sample produced which base. tang now has it
+(`ctc_loss`, `ctc_loss_grad`, `greedy_decode`, `beam_decode`), and
+`crates/gcat-signal/tests/basecall.rs` runs the whole seam: synthesize a trace,
+scale it, build a tensor, take a CTC gradient, decode back to DNA.
+
+That test needs `--features tang` **and** a tang checkout carrying CTC. Until
+that lands on tang's default branch, the default build skips it.
+
 ## Test data
 
 ```bash

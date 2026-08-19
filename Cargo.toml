@@ -21,6 +21,7 @@ gcat-signal = { version = "0.1.0", path = "crates/gcat-signal" }
 # tang is unpublished; side-by-side checkout at ../tang
 tang = { path = "../tang/crates/tang" }
 tang-tensor = { path = "../tang/crates/tang-tensor" }
+tang-train = { path = "../tang/crates/tang-train" }
 
 [profile.release]
 opt-level = 3

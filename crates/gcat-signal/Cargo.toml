@@ -13,3 +13,8 @@ tang = ["dep:tang-tensor"]
 
 [dependencies]
 tang-tensor = { workspace = true, optional = true }
+
+[dev-dependencies]
+gcat = { workspace = true }
+tang-tensor = { workspace = true }
+tang-train = { workspace = true }
