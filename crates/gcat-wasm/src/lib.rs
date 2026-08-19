@@ -64,6 +64,8 @@ pub struct Analyzer {
     /// Scratch the editor reads through, so rows cross the boundary as a
     /// pointer rather than as a fresh string per scroll frame.
     scratch: Vec<u8>,
+    /// The first record's header line, for the title bar.
+    first_header: String,
 }
 
 /// How much sequence to keep for the editor.
@@ -115,6 +117,7 @@ impl Analyzer {
             qual: Vec::new(),
             seq_truncated: false,
             scratch: vec![0u8; 4096],
+            first_header: String::new(),
         }
     }
 
@@ -158,6 +161,7 @@ impl Analyzer {
             if first == b'>' || first == b'@' {
                 self.section = Section::Sequence;
                 self.records += 1;
+                self.remember_header();
                 return;
             }
         }
@@ -167,6 +171,7 @@ impl Analyzer {
                 if first == b'>' {
                     self.close_record();
                     self.records += 1;
+                    self.remember_header();
                     self.cgr.discontinuity();
                 } else {
                     self.take_sequence();
@@ -176,6 +181,7 @@ impl Analyzer {
                 Section::Header => {
                     self.close_record();
                     self.records += 1;
+                    self.remember_header();
                     self.cgr.discontinuity();
                     self.section = Section::Sequence;
                 }
@@ -190,6 +196,14 @@ impl Analyzer {
                 }
             },
             Kind::Unknown => {}
+        }
+    }
+
+    /// Keep the first header only. Later ones scroll past too fast to matter
+    /// and would mean holding every identifier in a multi-million-read file.
+    fn remember_header(&mut self) {
+        if self.first_header.is_empty() && self.line.len() > 1 {
+            self.first_header = String::from_utf8_lossy(&self.line[1..]).into_owned();
         }
     }
 
@@ -418,6 +432,11 @@ impl Analyzer {
 
 #[wasm_bindgen]
 impl Analyzer {
+    /// The first record's header line, without its `>` or `@`.
+    pub fn header(&self) -> String {
+        self.first_header.clone()
+    }
+
     /// Bases retained for the editor.
     pub fn seq_len(&self) -> f64 {
         self.seq.len() as f64

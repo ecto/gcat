@@ -3,163 +3,222 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>gcat — cat for genomes</title>
-<meta name="description" content="Drop a genome in your browser. Chaos game k-mer maps, GC skew, read quality — computed locally in WebAssembly. Nothing is uploaded.">
+<title>gcat</title>
+<meta name="description" content="A genome workbench that runs entirely in your browser. Sequence editor, chaos game k-mer maps, GC skew, read quality. Nothing is uploaded.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <style>
-:root{--bg:250 250 250;--txt:26 26 26;--muted:102 102 102;--accent:180 83 9;--surface:240 240 240;--line:220 220 218}
-@media (prefers-color-scheme:dark){:root{--bg:9 9 11;--txt:250 250 250;--muted:113 113 122;--accent:245 158 11;--surface:24 24 27;--line:39 39 42}}
-*{box-sizing:border-box}
-body{margin:0;background:rgb(var(--bg));color:rgb(var(--txt));
-  font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;line-height:1.6;
+:root{
+  --bg:250 250 250;--panel:255 255 255;--rail:244 244 242;--txt:26 26 26;
+  --muted:105 105 102;--dim:150 150 146;--accent:180 83 9;--line:224 224 220;
+  --A:15 110 86;--C:24 95 165;--G:133 79 11;--T:153 60 29;
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:12 12 14;--panel:22 22 25;--rail:17 17 20;--txt:245 245 247;
+  --muted:135 135 142;--dim:88 88 95;--accent:245 158 11;--line:42 42 48;
+  --A:79 191 155;--C:95 168 232;--G:232 163 61;--T:238 138 107;
+}}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{background:rgb(var(--bg));color:rgb(var(--txt));
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
   -webkit-font-smoothing:antialiased}
-.wrap{max-width:1080px;margin:0 auto;padding:3rem 1.5rem 5rem}
-h1{font-size:2.5rem;font-weight:600;margin:0 0 .25rem;letter-spacing:-.02em}
-h2{font-size:1.1rem;font-weight:600;margin:0 0 .25rem}
-.sub{color:rgb(var(--muted));margin:0 0 2rem;font-size:1.05rem}
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-.accent{color:rgb(var(--accent))}
-.drop{border:1.5px dashed rgb(var(--line));border-radius:12px;padding:2.5rem 1.5rem;text-align:center;
-  transition:border-color .15s,background .15s;cursor:pointer;background:rgb(var(--surface)/.4)}
-.drop.hot{border-color:rgb(var(--accent));background:rgb(var(--accent)/.06)}
-.drop p{margin:.35rem 0}
-.samples{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center;margin-top:1rem}
-button{font:inherit;font-size:.85rem;padding:.35rem .8rem;border:1px solid rgb(var(--line));
-  border-radius:6px;background:rgb(var(--bg));color:rgb(var(--txt));cursor:pointer}
-button:hover{border-color:rgb(var(--accent));color:rgb(var(--accent))}
-button:disabled{opacity:.45;cursor:default;border-color:rgb(var(--line));color:rgb(var(--muted))}
-.bar{height:3px;background:rgb(var(--line));border-radius:2px;overflow:hidden;margin:1.25rem 0 0}
-.bar>i{display:block;height:100%;width:0;background:rgb(var(--accent));transition:width .1s linear}
-.status{font-size:.85rem;color:rgb(var(--muted));margin-top:.6rem;min-height:1.2em}
-.panels{display:grid;gap:1.25rem;margin-top:2rem}
-@media(min-width:820px){.panels{grid-template-columns:1fr 1fr}.full{grid-column:1/-1}}
-.card{border:1px solid rgb(var(--line));border-radius:12px;padding:1.25rem;background:rgb(var(--surface)/.4)}
-.card p.note{color:rgb(var(--muted));font-size:.85rem;margin:.25rem 0 1rem}
-canvas{width:100%;height:auto;display:block;border-radius:8px;image-rendering:pixelated;
-  background:rgb(var(--surface))}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(115px,1fr));gap:.85rem 1rem}
-.stat b{display:block;font-size:1.25rem;font-weight:600;font-family:ui-monospace,monospace;letter-spacing:-.02em}
-.stat span{font-size:.75rem;color:rgb(var(--muted));text-transform:lowercase}
-.hide{display:none}
-.ctl{display:flex;gap:.5rem;align-items:center;margin-top:.85rem;font-size:.8rem;color:rgb(var(--muted));flex-wrap:wrap}
-input[type=range]{flex:1;min-width:110px;accent-color:rgb(var(--accent))}
-.finding{border-left:2px solid rgb(var(--accent));padding:.5rem 0 .5rem .85rem;margin-top:1rem;font-size:.9rem}
-.finding b{font-family:ui-monospace,monospace}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 
-/* — the editor — */
-.editor{border:1px solid rgb(var(--line));border-radius:12px;overflow:hidden;background:rgb(var(--surface)/.35)}
-.ehead{display:flex;align-items:center;gap:.75rem;padding:.7rem .9rem;border-bottom:1px solid rgb(var(--line));flex-wrap:wrap}
-.ehead h2{margin:0;flex:0 0 auto}
+/* — shell — */
+.app{display:grid;grid-template-rows:auto 1fr auto;height:100dvh}
+.titlebar{display:flex;align-items:center;gap:.75rem;padding:0 .85rem;height:44px;
+  background:rgb(var(--rail));border-bottom:1px solid rgb(var(--line));flex:0 0 auto}
+.brand{font-family:ui-monospace,monospace;font-weight:600;font-size:1rem;letter-spacing:-.01em}
+.brand em{color:rgb(var(--accent));font-style:normal}
+.chip{display:flex;align-items:center;gap:.45rem;padding:.2rem .55rem;border-radius:6px;
+  background:rgb(var(--panel));border:1px solid rgb(var(--line));font-size:.78rem;
+  max-width:46vw;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.chip b{font-family:ui-monospace,monospace;font-weight:500}
+.chip span{color:rgb(var(--muted));overflow:hidden;text-overflow:ellipsis}
 .grow{flex:1}
-.seek{font-family:ui-monospace,monospace;font-size:.8rem;padding:.3rem .55rem;border:1px solid rgb(var(--line));
-  border-radius:6px;background:rgb(var(--bg));color:rgb(var(--txt));width:8.5rem}
-.seek::placeholder{color:rgb(var(--muted))}
-.seek:focus{outline:none;border-color:rgb(var(--accent))}
-.ruler{font-family:ui-monospace,monospace;font-size:.68rem;color:rgb(var(--muted));
-  padding:.4rem .9rem .3rem;border-bottom:1px solid rgb(var(--line));white-space:pre;overflow:hidden;letter-spacing:.02em}
-.view{position:relative;height:432px;overflow-y:auto;overflow-x:hidden;
+.tb{font:inherit;font-size:.78rem;padding:.28rem .6rem;border:1px solid rgb(var(--line));border-radius:6px;
+  background:rgb(var(--panel));color:rgb(var(--txt));cursor:pointer;white-space:nowrap}
+.tb:hover{border-color:rgb(var(--accent));color:rgb(var(--accent))}
+.tb kbd{font-family:ui-monospace,monospace;font-size:.68rem;color:rgb(var(--dim));margin-left:.35rem}
+
+.body{display:grid;grid-template-columns:auto 1fr;min-height:0}
+.rail{width:132px;background:rgb(var(--rail));border-right:1px solid rgb(var(--line));
+  padding:.6rem .5rem;display:flex;flex-direction:column;gap:.15rem;flex:0 0 auto}
+.rail button{display:flex;align-items:baseline;gap:.5rem;width:100%;text-align:left;font:inherit;
+  font-size:.82rem;padding:.4rem .55rem;border:0;border-radius:7px;background:none;
+  color:rgb(var(--muted));cursor:pointer}
+.rail button:hover{background:rgb(var(--panel));color:rgb(var(--txt))}
+.rail button[aria-selected=true]{background:rgb(var(--accent)/.13);color:rgb(var(--accent));font-weight:500}
+.rail button i{font-family:ui-monospace,monospace;font-size:.66rem;color:rgb(var(--dim));font-style:normal}
+.rail button[aria-selected=true] i{color:rgb(var(--accent));opacity:.7}
+.rail hr{border:0;border-top:1px solid rgb(var(--line));margin:.5rem .3rem}
+.railnote{font-size:.68rem;color:rgb(var(--dim));padding:.3rem .55rem;line-height:1.45;margin-top:auto}
+
+.main{min-width:0;min-height:0;position:relative;display:flex;flex-direction:column}
+.pane{display:none;flex:1;min-height:0;flex-direction:column}
+.pane.on{display:flex}
+.panehead{display:flex;align-items:center;gap:.6rem;padding:.5rem .85rem;flex:0 0 auto;flex-wrap:wrap}
+.panehead h2{font-size:.85rem;font-weight:500}
+.panehead p{font-size:.75rem;color:rgb(var(--muted))}
+.field{font-family:ui-monospace,monospace;font-size:.75rem;padding:.25rem .5rem;
+  border:1px solid rgb(var(--line));border-radius:6px;background:rgb(var(--panel));
+  color:rgb(var(--txt));width:9rem}
+.field::placeholder{color:rgb(var(--dim))}
+.field:focus{outline:none;border-color:rgb(var(--accent))}
+.canvaswrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0 .85rem .85rem}
+canvas{display:block;max-width:100%;max-height:100%}
+#cgr{image-rendering:pixelated;border-radius:8px}
+#hist,#skew{width:100%;border-radius:8px}
+
+/* — editor — */
+.ruler{font-family:ui-monospace,monospace;font-size:.66rem;color:rgb(var(--dim));
+  padding:.15rem .85rem .3rem;white-space:pre;overflow:hidden;flex:0 0 auto}
+.view{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
+  /* The spacer grows as the file streams; without this Chrome's scroll
+     anchoring drifts the view away from where the user left it. */
+  overflow-anchor:none;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;line-height:18px}
-.view::-webkit-scrollbar{width:10px}
-.view::-webkit-scrollbar-thumb{background:rgb(var(--line));border-radius:5px}
+.view::-webkit-scrollbar{width:11px}
+.view::-webkit-scrollbar-thumb{background:rgb(var(--line));border-radius:6px}
+.view::-webkit-scrollbar-thumb:hover{background:rgb(var(--dim))}
 .spacer{position:relative}
-.row{position:absolute;left:0;right:0;height:18px;white-space:pre;padding:0 .9rem;display:flex;gap:.85rem;align-items:center}
+.row{position:absolute;left:0;right:0;height:18px;white-space:pre;padding:0 .85rem;
+  display:flex;gap:.8rem;align-items:center}
 .row:hover{background:rgb(var(--accent)/.05)}
-.off{color:rgb(var(--muted));flex:0 0 auto;opacity:.65;letter-spacing:.02em}
-.seqcol{flex:0 0 auto;letter-spacing:.06em}
-.gcbar{flex:0 0 46px;height:6px;border-radius:3px;background:rgb(var(--line));overflow:hidden;position:relative}
-.gcbar i{position:absolute;inset:0 auto 0 0;background:rgb(var(--accent));opacity:.75}
-.qstrip{flex:0 0 auto;display:flex;height:9px;gap:0;border-radius:2px;overflow:hidden}
-.qstrip i{width:2px;height:100%}
-.b-A{color:#4FBF9B}.b-C{color:#5FA8E8}.b-G{color:#E8A33D}.b-T{color:#EE8A6B}.b-N{color:rgb(var(--muted));opacity:.6}
-@media(prefers-color-scheme:light){.b-A{color:#0F6E56}.b-C{color:#185FA5}.b-G{color:#854F0B}.b-T{color:#993C1D}}
-.sel{background:rgb(var(--accent)/.22);border-radius:2px}
-.hit{background:rgb(var(--accent)/.34);border-radius:2px;font-weight:600}
-.efoot{display:flex;align-items:center;gap:1rem;padding:.55rem .9rem;border-top:1px solid rgb(var(--line));
-  font-family:ui-monospace,monospace;font-size:.72rem;color:rgb(var(--muted));flex-wrap:wrap;min-height:2.2rem}
-.efoot b{color:rgb(var(--txt));font-weight:500}
-.minimap{width:100%;height:34px;display:block;cursor:crosshair;border-top:1px solid rgb(var(--line))}
-.legend{display:flex;gap:.7rem;font-size:.7rem;align-items:center}
-.legend span{display:flex;gap:.25rem;align-items:center}
-footer{margin-top:3.5rem;padding-top:1.5rem;border-top:1px solid rgb(var(--line));
-  color:rgb(var(--muted));font-size:.85rem}
-a{color:rgb(var(--accent))}
+.off{color:rgb(var(--dim));flex:0 0 auto;letter-spacing:.02em}
+.seqcol{flex:0 0 auto;letter-spacing:.055em}
+.gcbar{flex:0 0 42px;height:5px;border-radius:3px;background:rgb(var(--line));position:relative;overflow:hidden}
+.gcbar i{position:absolute;inset:0 auto 0 0;background:rgb(var(--accent));opacity:.7}
+.qstrip{flex:0 0 auto;display:flex;height:9px;border-radius:2px;overflow:hidden}
+.qstrip i{width:2px}
+.b-A{color:rgb(var(--A))}.b-C{color:rgb(var(--C))}.b-G{color:rgb(var(--G))}
+.b-T{color:rgb(var(--T))}.b-N{color:rgb(var(--dim))}
+.sel{background:rgb(var(--accent)/.24);border-radius:2px}
+.hit{background:rgb(var(--accent)/.36);border-radius:2px}
+#minimap{width:100%;height:30px;display:block;cursor:crosshair;
+  border-top:1px solid rgb(var(--line));flex:0 0 auto}
+
+/* — status bar — */
+.status{display:flex;align-items:center;gap:.9rem;height:26px;padding:0 .85rem;
+  background:rgb(var(--rail));border-top:1px solid rgb(var(--line));
+  font-family:ui-monospace,monospace;font-size:.7rem;color:rgb(var(--muted));
+  overflow:hidden;white-space:nowrap;flex:0 0 auto}
+.status b{color:rgb(var(--txt));font-weight:500}
+.status .sep{color:rgb(var(--line))}
+.status .right{margin-left:auto;display:flex;gap:.9rem;align-items:center}
+.dot{width:6px;height:6px;border-radius:50%;background:rgb(var(--accent));flex:0 0 auto}
+.dot.idle{background:rgb(var(--dim))}
+
+/* — empty state — */
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:1.1rem;padding:2rem;text-align:center}
+.empty h1{font-size:1.6rem;font-weight:600;letter-spacing:-.02em}
+.empty p{color:rgb(var(--muted));max-width:34rem;font-size:.9rem}
+.dz{border:1.5px dashed rgb(var(--line));border-radius:12px;padding:1.6rem 2.4rem;cursor:pointer;
+  transition:border-color .15s,background .15s}
+.dz:hover,.dz.hot{border-color:rgb(var(--accent));background:rgb(var(--accent)/.06)}
+.samples{display:flex;gap:.4rem;flex-wrap:wrap;justify-content:center}
+.kbd{display:flex;gap:1rem;font-size:.72rem;color:rgb(var(--dim));flex-wrap:wrap;justify-content:center}
+.kbd kbd{font-family:ui-monospace,monospace;border:1px solid rgb(var(--line));border-radius:4px;
+  padding:0 .3rem;color:rgb(var(--muted))}
+.hide{display:none!important}
+.dragging::after{content:'';position:fixed;inset:0;border:2px solid rgb(var(--accent));
+  background:rgb(var(--accent)/.07);pointer-events:none;z-index:50}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1 class="mono">gcat</h1>
-  <p class="sub">cat for genomes. Drop a FASTA or FASTQ below &mdash; it is read in your browser and never leaves this machine.</p>
-
-  <div class="drop" id="drop">
-    <p><b>Drop a genome here</b></p>
-    <p style="color:rgb(var(--muted));font-size:.9rem">or click to choose &mdash; .fa .fasta .fq .fastq</p>
-    <div class="samples">
-      <button data-s="phix174.fa">phiX174 &middot; 5 kb</button>
-      <button data-s="lambda.fa">lambda &middot; 49 kb</button>
-      <button data-s="sars2.fa">SARS-CoV-2 &middot; 30 kb</button>
-      <button data-s="ecoli.fa">E. coli &middot; 4.6 Mb</button>
-      <button data-s="sample.fq">synthetic reads &middot; FASTQ</button>
-    </div>
+<div class="app">
+  <header class="titlebar">
+    <span class="brand">g<em>cat</em></span>
+    <div class="chip hide" id="chip"><b id="chipName"></b><span id="chipDesc"></span></div>
+    <span class="grow"></span>
+    <button class="tb" id="openBtn">Open<kbd>&#8984;O</kbd></button>
+    <button class="tb" id="palBtn">ember</button>
     <input type="file" id="file" class="hide" accept=".fa,.fasta,.fna,.fq,.fastq,.txt">
+  </header>
+
+  <div class="body">
+    <nav class="rail" id="rail">
+      <button data-v="seq" aria-selected="true">Sequence<i>1</i></button>
+      <button data-v="cgr" aria-selected="false">k-mer map<i>2</i></button>
+      <button data-v="skew" aria-selected="false">GC skew<i>3</i></button>
+      <button data-v="hist" aria-selected="false">Quality<i>4</i></button>
+      <hr>
+      <p class="railnote">Everything runs in this tab. Nothing is uploaded.</p>
+    </nav>
+
+    <main class="main" id="main">
+      <section class="empty" id="empty">
+        <h1 class="mono">cat for genomes</h1>
+        <p>Open a FASTA or FASTQ. It is read with the File API and analysed in WebAssembly &mdash; there is no server to send it to.</p>
+        <div class="dz" id="dz">
+          <b>Drop a genome here</b>
+          <div style="color:rgb(var(--muted));font-size:.8rem;margin-top:.2rem">or click to choose</div>
+        </div>
+        <div class="samples">
+          <button class="tb" data-s="phix174.fa">phiX174 &middot; 5 kb</button>
+          <button class="tb" data-s="lambda.fa">lambda &middot; 49 kb</button>
+          <button class="tb" data-s="sars2.fa">SARS-CoV-2 &middot; 30 kb</button>
+          <button class="tb" data-s="ecoli.fa">E. coli &middot; 4.6 Mb</button>
+          <button class="tb" data-s="sample.fq">reads &middot; FASTQ</button>
+        </div>
+        <div class="kbd">
+          <span><kbd>1</kbd>&ndash;<kbd>4</kbd> views</span>
+          <span><kbd>/</kbd> find motif</span>
+          <span><kbd>g</kbd> go to base</span>
+          <span><kbd>esc</kbd> clear</span>
+        </div>
+      </section>
+
+      <section class="pane on" id="pane-seq">
+        <div class="panehead">
+          <h2>Sequence</h2>
+          <span class="mono" style="font-size:.72rem">
+            <b class="b-A">A</b> <b class="b-C">C</b> <b class="b-G">G</b> <b class="b-T">T</b>
+          </span>
+          <span class="grow"></span>
+          <input class="field" id="seek" placeholder="go to base" spellcheck="false">
+          <input class="field" id="motif" placeholder="find motif" spellcheck="false">
+          <button class="tb" id="findNext">Next</button>
+        </div>
+        <div class="ruler" id="ruler"></div>
+        <div class="view" id="view"><div class="spacer" id="spacer"></div></div>
+        <canvas id="minimap"></canvas>
+      </section>
+
+      <section class="pane" id="pane-cgr">
+        <div class="panehead">
+          <h2>Chaos game k-mer map</h2>
+          <p id="cgrNote"></p>
+          <span class="grow"></span>
+          <label style="font-size:.72rem;color:rgb(var(--muted))">contrast</label>
+          <input type="range" id="gamma" min="15" max="100" value="40" style="width:110px;accent-color:rgb(var(--accent))">
+        </div>
+        <div class="canvaswrap"><canvas id="cgr"></canvas></div>
+      </section>
+
+      <section class="pane" id="pane-skew">
+        <div class="panehead">
+          <h2>Cumulative GC skew</h2>
+          <p id="skewNote">Where the curve turns marks where replication starts.</p>
+        </div>
+        <div class="canvaswrap"><canvas id="skew"></canvas></div>
+      </section>
+
+      <section class="pane" id="pane-hist">
+        <div class="panehead">
+          <h2>Read length vs quality</h2>
+          <p id="histNote">Length on a log axis, mean Phred on the vertical.</p>
+        </div>
+        <div class="canvaswrap"><canvas id="hist"></canvas></div>
+      </section>
+    </main>
   </div>
-  <div class="bar"><i id="prog"></i></div>
-  <div class="status mono" id="status">ready</div>
 
-  <div class="panels hide" id="panels">
-    <div class="editor full hide" id="editor">
-      <div class="ehead">
-        <h2>Sequence</h2>
-        <span class="legend">
-          <span><b class="b-A">A</b></span><span><b class="b-C">C</b></span>
-          <span><b class="b-G">G</b></span><span><b class="b-T">T</b></span>
-        </span>
-        <span class="grow"></span>
-        <input class="seek" id="seek" placeholder="go to 1234" spellcheck="false">
-        <input class="seek" id="motif" placeholder="find ACGT" spellcheck="false">
-        <button id="findNext">next</button>
-      </div>
-      <div class="ruler" id="ruler"></div>
-      <div class="view" id="view"><div class="spacer" id="spacer"></div></div>
-      <canvas class="minimap" id="minimap"></canvas>
-      <div class="efoot" id="efoot">drag to select &middot; click the minimap to jump</div>
-    </div>
-
-    <div class="card full">
-      <h2>Summary</h2>
-      <p class="note">Computed in one streaming pass.</p>
-      <div class="stats" id="stats"></div>
-    </div>
-
-    <div class="card">
-      <h2>Chaos game k-mer map</h2>
-      <p class="note" id="cgrNote">Every pixel is one k-mer.</p>
-      <canvas id="cgr"></canvas>
-      <div class="ctl">
-        <label for="gamma">contrast</label>
-        <input type="range" id="gamma" min="15" max="100" value="40">
-        <button id="pal">ember</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Cumulative GC skew</h2>
-      <p class="note">Where the curve turns marks where replication starts.</p>
-      <canvas id="skew"></canvas>
-      <div id="oriC"></div>
-    </div>
-
-    <div class="card full hide" id="histCard">
-      <h2>Read length vs quality</h2>
-      <p class="note">Length on a log axis, mean Phred on the vertical. Reveals whether the long reads are also the good ones.</p>
-      <canvas id="hist"></canvas>
-    </div>
-  </div>
-
-  <footer>
-    <p><b>Nothing is uploaded.</b> The file is read with the browser's File API and processed by
-    <span class="mono">gcat</span> compiled to WebAssembly &mdash; the same <span class="mono">no_std</span> Rust
-    that runs on a laptop or next to a sequencer. There is no server to send it to.</p>
-    <p><a href="https://github.com/ecto/gcat">github.com/ecto/gcat</a> &middot; built on <a href="https://github.com/ecto/tang">tang</a></p>
+  <footer class="status">
+    <span class="dot idle" id="dot"></span>
+    <span id="stStatus">ready</span>
+    <span class="right" id="stRight"></span>
   </footer>
 </div>
 
@@ -167,66 +226,84 @@ a{color:rgb(var(--accent))}
 import init, { Analyzer } from './pkg/gcat_wasm.js';
 
 const $ = id => document.getElementById(id);
-const status = $('status'), prog = $('prog'), panels = $('panels');
-let wasm, analyzer, palette = 0, rafPending = false;
+let wasm, analyzer, palette = +(localStorage.gcatPalette ?? 0), view = localStorage.gcatView || 'seq';
+let rafPending = false, sel = null, dragFrom = null, motif = '';
 const PALETTES = ['ember', 'ice', 'mono'];
+const COLS = 60, GROUP = 10, ROW_H = 18;
 
-const fmt = n => n >= 1e9 ? (n/1e9).toFixed(2)+' G' : n >= 1e6 ? (n/1e6).toFixed(2)+' M'
-  : n >= 1e3 ? (n/1e3).toFixed(1)+' k' : String(Math.round(n));
+const fmt = n => n >= 1e9 ? (n/1e9).toFixed(2)+'G' : n >= 1e6 ? (n/1e6).toFixed(2)+'M'
+  : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(Math.round(n));
 const bp = n => Math.round(n).toLocaleString();
 
-init().then(m => { wasm = m; status.textContent = 'ready'; });
+init().then(m => { wasm = m; setView(view); $('palBtn').textContent = PALETTES[palette]; });
 
-// Zero-copy: wrap the analyzer's RGBA buffer in an ImageData over wasm memory.
-function blit(canvas, ptr, w, h) {
-  const bytes = new Uint8ClampedArray(wasm.memory.buffer, ptr, w * h * 4);
+/* ── views ─────────────────────────────────────────────────────────────── */
+function setView(v) {
+  view = v; localStorage.gcatView = v;
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === 'pane-' + v));
+  document.querySelectorAll('#rail button').forEach(b =>
+    b.setAttribute('aria-selected', String(b.dataset.v === v)));
+  if (analyzer) { $('empty').classList.add('hide'); paint(); }
+  else document.querySelectorAll('.pane').forEach(p => p.classList.remove('on'));
+}
+
+/* ── zero-copy pixel transfer ───────────────────────────────────────────── */
+function blit(canvas, w, h, fit) {
+  const bytes = new Uint8ClampedArray(wasm.memory.buffer, analyzer.pixels_ptr(), w * h * 4);
   canvas.width = w; canvas.height = h;
   canvas.getContext('2d').putImageData(new ImageData(bytes, w, h), 0, 0);
+  if (fit) {
+    const box = canvas.parentElement.getBoundingClientRect();
+    const side = Math.max(120, Math.min(box.width, box.height));
+    canvas.style.width = canvas.style.height = side + 'px';
+  }
 }
 
 function drawCgr() {
-  const g = $('gamma').valueAsNumber / 100;
-  analyzer.render_cgr(palette, g);
+  analyzer.render_cgr(palette, $('gamma').valueAsNumber / 100);
   const n = analyzer.cgr_size();
-  blit($('cgr'), analyzer.pixels_ptr(), n, n);
-  const k = analyzer.cgr_order();
-  $('cgrNote').textContent =
-    `Every pixel is one ${k}-mer, ${(analyzer.cgr_sparsity()*100).toFixed(1)}% unseen. Corners: A bottom-left, C top-left, G top-right, T bottom-right.`;
+  blit($('cgr'), n, n, true);
+  $('cgrNote').textContent = `every pixel is one ${analyzer.cgr_order()}-mer · `
+    + `${(analyzer.cgr_sparsity()*100).toFixed(1)}% unseen · A ↙ C ↖ G ↗ T ↘`;
 }
 
 function drawHist() {
-  if (!analyzer.is_fastq() || analyzer.hist_total() === 0) return;
-  $('histCard').classList.remove('hide');
+  const ok = analyzer.is_fastq() && analyzer.hist_total() > 0;
+  $('histNote').textContent = ok
+    ? 'Length on a log axis, mean Phred on the vertical.'
+    : 'No quality scores — open a FASTQ to see this.';
+  if (!ok) { $('hist').width = 0; return; }
   analyzer.render_hist(palette, 0.45);
-  blit($('hist'), analyzer.pixels_ptr(), analyzer.hist_cols(), analyzer.hist_rows());
+  blit($('hist'), analyzer.hist_cols(), analyzer.hist_rows(), false);
+  $('hist').style.width = '100%'; $('hist').style.height = 'auto';
 }
 
 function drawSkew() {
-  const c = $('skew'), pts = analyzer.skew_curve();
-  const W = 600, H = 300, pad = 28, top = 44;
-  c.width = W; c.height = H;
-  const ctx = c.getContext('2d');
+  const c = $('skew'), box = c.parentElement.getBoundingClientRect();
+  const dpr = Math.min(2, devicePixelRatio || 1);
+  const W = Math.max(320, box.width), H = Math.max(200, box.height);
+  c.width = W * dpr; c.height = H * dpr;
+  c.style.width = W + 'px'; c.style.height = H + 'px';
+  const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
   const css = getComputedStyle(document.body);
-  const ink = css.color;
-  const accent = css.getPropertyValue('--accent').trim();
-  ctx.clearRect(0, 0, W, H);
-  if (pts.length < 4) return;
+  const ink = css.color, accent = css.getPropertyValue('--accent').trim();
+  const pts = analyzer.skew_curve();
+  if (pts.length < 4) { $('skewNote').textContent = 'Sequence too short for a curve.'; return; }
 
   let lo = Infinity, hi = -Infinity, maxX = 0;
   for (let i = 0; i < pts.length; i += 2) {
-    maxX = Math.max(maxX, pts[i]);
-    lo = Math.min(lo, pts[i+1]); hi = Math.max(hi, pts[i+1]);
+    maxX = Math.max(maxX, pts[i]); lo = Math.min(lo, pts[i+1]); hi = Math.max(hi, pts[i+1]);
   }
-  const span = (hi - lo) || 1;
+  const span = (hi - lo) || 1, pad = 34, top = 44;
   const X = v => pad + (v / (maxX || 1)) * (W - pad * 2);
   const Y = v => H - pad - ((v - lo) / span) * (H - pad - top);
 
-  ctx.globalAlpha = .25; ctx.strokeStyle = ink; ctx.lineWidth = 1;
+  ctx.globalAlpha = .22; ctx.strokeStyle = ink; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(W - pad, Y(0)); ctx.stroke();
   ctx.globalAlpha = 1;
 
-  ctx.strokeStyle = `rgb(${accent})`; ctx.lineWidth = 2;
-  ctx.lineJoin = 'round'; ctx.beginPath();
+  ctx.strokeStyle = `rgb(${accent})`; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath();
   for (let i = 0; i < pts.length; i += 2) {
     const x = X(pts[i]), y = Y(pts[i+1]);
     i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
@@ -236,93 +313,53 @@ function drawSkew() {
   const o = analyzer.origin(), t = analyzer.terminus();
   const mark = (pos, label, dash) => {
     if (pos < 0) return;
-    ctx.save();
-    ctx.setLineDash(dash); ctx.globalAlpha = .55; ctx.strokeStyle = ink; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(X(pos), top - 10); ctx.lineTo(X(pos), H - pad + 4); ctx.stroke();
+    ctx.save(); ctx.setLineDash(dash); ctx.globalAlpha = .5;
+    ctx.strokeStyle = ink; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(X(pos), top - 12); ctx.lineTo(X(pos), H - pad + 4); ctx.stroke();
     ctx.restore();
-    ctx.fillStyle = ink; ctx.globalAlpha = .7;
-    ctx.font = '11px ui-monospace, monospace';
+    ctx.fillStyle = ink; ctx.globalAlpha = .75; ctx.font = '11px ui-monospace, monospace';
     ctx.textAlign = X(pos) > W / 2 ? 'right' : 'left';
-    ctx.fillText(label, X(pos) + (X(pos) > W / 2 ? -6 : 6), top - 16);
+    ctx.fillText(label, X(pos) + (X(pos) > W / 2 ? -6 : 6), top - 18);
     ctx.globalAlpha = 1;
   };
-  mark(o, 'origin', [4, 3]);
-  mark(t, 'terminus', [1, 3]);
-
-  $('oriC').innerHTML = o < 0 ? '' :
-    `<div class="finding">Replication origin predicted at <b>${bp(o)} bp</b>, terminus at <b>${bp(t)} bp</b>.
-     <span style="color:rgb(var(--muted))">Found by counting G and C. No alignment, no reference.</span></div>`;
+  mark(o, 'origin', [4, 3]); mark(t, 'terminus', [1, 3]);
+  $('skewNote').textContent = o < 0 ? 'Where the curve turns marks where replication starts.'
+    : `origin ≈ ${bp(o)} bp · terminus ≈ ${bp(t)} bp · from counting G and C alone`;
 }
 
-function drawStats() {
-  const L = analyzer.length_stats();
-  const q = analyzer.mean_quality();
-  const items = [
-    ['records', fmt(analyzer.records())],
-    ['bases', fmt(analyzer.bases())],
-    ['GC', (analyzer.gc_fraction() * 100).toFixed(2) + '%'],
-    ['longest', bp(L[4])],
-    ['N50', bp(L[5])],
-  ];
-  if (analyzer.ambiguous() > 0) items.push(['ambiguous', fmt(analyzer.ambiguous())]);
-  if (q >= 0) items.push(['mean Q', q.toFixed(1)]);
-  $('stats').innerHTML = items
-    .map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
-}
-
-// ── sequence editor ────────────────────────────────────────────────────────
-// A hex editor for DNA: offsets down the left, bases in the middle, GC and
-// quality in the gutter. Rows are virtualized — a 4.6 Mb genome is 72,000 rows
-// and only the ~25 on screen ever exist in the DOM.
-const COLS = 60, GROUP = 10, ROW_H = 18;
-let sel = null, dragFrom = null, motif = '';
-const decoder = new TextDecoder();
-
+/* ── sequence editor ───────────────────────────────────────────────────── */
 const BASE_CLASS = (() => {
   const t = new Array(256).fill('b-N');
-  t[65] = 'b-A'; t[67] = 'b-C'; t[71] = 'b-G'; t[84] = 'b-T'; t[85] = 'b-T';
+  t[65]='b-A'; t[67]='b-C'; t[71]='b-G'; t[84]='b-T'; t[85]='b-T';
   return t;
 })();
-
-// Read straight out of wasm memory rather than marshalling a string per row.
-function scratch(n) {
-  return new Uint8Array(wasm.memory.buffer, analyzer.scratch_ptr(), n);
-}
-
-function offsetLabel(v, width) {
-  return String(v).padStart(width, ' ');
-}
+const scratch = n => new Uint8Array(wasm.memory.buffer, analyzer.scratch_ptr(), n);
 
 function rulerText(width) {
   let out = ' '.repeat(width + 2);
-  for (let i = 0; i < COLS; i++) {
-    if (i % GROUP === 0) out += String(i).padEnd(GROUP, ' ').slice(0, GROUP);
-  }
+  for (let i = 0; i < COLS; i += GROUP) out += String(i).padEnd(GROUP, ' ');
   return out;
 }
 
 function buildRow(rowIdx, offWidth) {
   const start = rowIdx * COLS;
-  // Read a motif's worth beyond the row so a match straddling the boundary is
-  // still found; only the row's own bases are drawn.
   const over = motif ? motif.length - 1 : 0;
   const n = analyzer.read_bases(start, COLS + over);
-  if (n === 0) return null;
+  if (n === 0) return '';
   const bases = scratch(n).slice();
   const visible = Math.min(n, COLS);
 
-  // Mark every position covered by a match visible in this row.
-  const marked = motif ? new Uint8Array(visible) : null;
+  let marked = null;
   if (motif) {
+    marked = new Uint8Array(visible);
     const back = Math.min(start, motif.length - 1);
-    const from = start - back;
-    const m2 = analyzer.read_bases(from, back + n);
+    const m2 = analyzer.read_bases(start - back, back + n);
     const win = scratch(m2).slice();
     for (let i = 0; i + motif.length <= m2; i++) {
       let ok = true;
       for (let j = 0; j < motif.length; j++) {
         const c = motif[j];
-        if (c !== 'N' && String.fromCharCode(win[i + j]) !== c) { ok = false; break; }
+        if (c !== 'N' && String.fromCharCode(win[i+j]) !== c) { ok = false; break; }
       }
       if (!ok) continue;
       for (let j = 0; j < motif.length; j++) {
@@ -341,199 +378,120 @@ function buildRow(rowIdx, offWidth) {
     html += `<b class="${cls}">${String.fromCharCode(bases[i])}</b>`;
     if ((i + 1) % GROUP === 0 && i + 1 < visible) html += ' ';
   }
-  const n_ = visible;
 
-  const gc = analyzer.gc_of(start, n_);
-  let gutter = `<span class="gcbar"><i style="width:${gc < 0 ? 0 : (gc * 100).toFixed(0)}%"></i></span>`;
-
+  const gc = analyzer.gc_of(start, visible);
+  let gutter = `<span class="gcbar"><i style="width:${gc < 0 ? 0 : (gc*100).toFixed(0)}%"></i></span>`;
   if (analyzer.has_quality()) {
-    const qn = analyzer.read_quality(start, n_);
+    const qn = analyzer.read_quality(start, visible);
     if (qn > 0) {
       const q = scratch(qn).slice();
       let strip = '';
       for (let i = 0; i < qn; i++) {
-        // Phred 0..40 mapped to a dim-to-bright ramp.
         const t = Math.max(0, Math.min(1, (q[i] - 33) / 40));
-        const l = Math.round(28 + t * 62);
-        strip += `<i style="background:hsl(${Math.round(18 + t * 30)} 62% ${l}%)"></i>`;
+        strip += `<i style="background:hsl(${Math.round(16+t*32)} 60% ${Math.round(26+t*60)}%)"></i>`;
       }
       gutter += `<span class="qstrip">${strip}</span>`;
     }
   }
-
-  return `<div class="row" style="top:${(rowIdx * ROW_H).toFixed(0)}px">`
-    + `<span class="off">${offsetLabel(start, offWidth)}</span>`
+  return `<div class="row" style="top:${(rowIdx*ROW_H).toFixed(0)}px">`
+    + `<span class="off">${String(start).padStart(offWidth,' ')}</span>`
     + `<span class="seqcol">${html}</span>${gutter}</div>`;
 }
 
 function renderRows() {
-  const view = $('view'), spacer = $('spacer');
-  const total = analyzer.seq_len();
+  const v = $('view'), spacer = $('spacer'), total = analyzer.seq_len();
   if (total === 0) return;
   const rows = Math.ceil(total / COLS);
   const offWidth = String((rows - 1) * COLS).length;
   spacer.style.height = (rows * ROW_H).toFixed(0) + 'px';
-
-  const first = Math.max(0, Math.floor(view.scrollTop / ROW_H) - 2);
-  const last = Math.min(rows, first + Math.ceil(view.clientHeight / ROW_H) + 4);
-
+  const first = Math.max(0, Math.floor(v.scrollTop / ROW_H) - 2);
+  const last = Math.min(rows, first + Math.ceil(v.clientHeight / ROW_H) + 4);
   let html = '';
-  for (let r = first; r < last; r++) html += buildRow(r, offWidth) || '';
+  for (let r = first; r < last; r++) html += buildRow(r, offWidth);
   spacer.innerHTML = html;
   $('ruler').textContent = rulerText(offWidth);
 }
 
 function drawMinimap() {
-  const c = $('minimap');
-  const w = c.clientWidth || 600;
-  c.width = w; c.height = 34;
-  const ctx = c.getContext('2d');
+  const c = $('minimap'), w = Math.max(200, c.clientWidth), dpr = Math.min(2, devicePixelRatio||1);
+  c.width = w * dpr; c.height = 30 * dpr;
+  const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
   const prof = analyzer.gc_profile(w);
-  ctx.clearRect(0, 0, w, 34);
   if (!prof.length) return;
-  const css = getComputedStyle(document.body);
-  const accent = css.getPropertyValue('--accent').trim();
+  const accent = getComputedStyle(document.body).getPropertyValue('--accent').trim();
   for (let x = 0; x < prof.length; x++) {
-    const v = prof[x];
-    if (v < 0) continue;
-    // Deviation from 50% GC, so both AT-rich and GC-rich regions stand out.
-    const d = Math.min(1, Math.abs(v - 0.5) * 4);
-    const h = 4 + d * 26;
-    ctx.fillStyle = `rgb(${accent} / ${(0.3 + d * 0.6).toFixed(2)})`;
-    ctx.fillRect(x, 34 - h, 1, h);
+    const val = prof[x];
+    if (val < 0) continue;
+    const d = Math.min(1, Math.abs(val - 0.5) * 4);
+    const h = 3 + d * 24;
+    ctx.fillStyle = `rgb(${accent} / ${(0.28 + d*0.6).toFixed(2)})`;
+    ctx.fillRect(x, 30 - h, 1, h);
   }
-  // Viewport indicator.
-  const view = $('view'), total = analyzer.seq_len();
-  const from = (view.scrollTop / ROW_H) * COLS / total;
-  const span = Math.max(0.004, (view.clientHeight / ROW_H) * COLS / total);
-  ctx.fillStyle = `rgb(${accent} / .18)`;
-  ctx.fillRect(from * w, 0, span * w, 34);
-  ctx.strokeStyle = `rgb(${accent} / .8)`;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(from * w + .5, .5, Math.max(1, span * w - 1), 33);
+  const v = $('view'), total = analyzer.seq_len();
+  const from = (v.scrollTop / ROW_H) * COLS / total;
+  const span = Math.max(0.004, (v.clientHeight / ROW_H) * COLS / total);
+  ctx.fillStyle = `rgb(${accent} / .16)`; ctx.fillRect(from*w, 0, span*w, 30);
+  ctx.strokeStyle = `rgb(${accent} / .85)`; ctx.lineWidth = 1;
+  ctx.strokeRect(from*w + .5, .5, Math.max(1, span*w - 1), 29);
 }
 
 function scrollToBase(pos) {
-  const view = $('view');
-  const row = Math.floor(pos / COLS);
-  view.scrollTop = Math.max(0, row * ROW_H - view.clientHeight / 2);
+  const v = $('view');
+  v.scrollTop = Math.max(0, Math.floor(pos / COLS) * ROW_H - v.clientHeight / 2);
   renderRows(); drawMinimap();
 }
 
-function describeSelection() {
-  const foot = $('efoot');
-  if (!sel || sel.hi - sel.lo < 1) {
-    const t = analyzer.seq_truncated()
-      ? ` &middot; showing the first ${fmt(analyzer.seq_len())} bases`
-      : '';
-    foot.innerHTML = `drag to select &middot; click the minimap to jump${t}`;
-    return;
+/* ── status bar ────────────────────────────────────────────────────────── */
+function drawStatus() {
+  const L = analyzer.length_stats(), q = analyzer.mean_quality();
+  const bits = [
+    `<b>${bp(analyzer.bases())}</b> bp`,
+    `<b>${fmt(analyzer.records())}</b> rec`,
+    `GC <b>${(analyzer.gc_fraction()*100).toFixed(2)}%</b>`,
+  ];
+  if (L[0] > 1) bits.push(`N50 <b>${bp(L[5])}</b>`);
+  if (q >= 0) bits.push(`Q <b>${q.toFixed(1)}</b>`);
+  if (analyzer.ambiguous() > 0) bits.push(`N <b>${fmt(analyzer.ambiguous())}</b>`);
+  if (analyzer.seq_truncated()) bits.push(`<b>truncated</b> at ${fmt(analyzer.seq_len())}`);
+
+  let right = '';
+  if (sel && sel.hi - sel.lo > 0) {
+    const len = sel.hi - sel.lo, gc = analyzer.gc_of(sel.lo, len);
+    const rc = len <= 32 ? ` · rc <b>${analyzer.revcomp_of(sel.lo, len)}</b>` : '';
+    right = `sel <b>${bp(sel.lo)}</b>–<b>${bp(sel.hi)}</b> · <b>${bp(len)}</b> bp`
+      + ` · GC <b>${gc < 0 ? '—' : (gc*100).toFixed(1)+'%'}</b>${rc}`;
   }
-  const len = sel.hi - sel.lo;
-  const gc = analyzer.gc_of(sel.lo, len);
-  const rc = len <= 60 ? analyzer.revcomp_of(sel.lo, len) : '';
-  foot.innerHTML = `<b>${bp(sel.lo)}</b>&ndash;<b>${bp(sel.hi)}</b> `
-    + `&middot; <b>${bp(len)}</b> bp &middot; GC <b>${gc < 0 ? '&mdash;' : (gc*100).toFixed(1) + '%'}</b>`
-    + (rc ? ` &middot; revcomp <b>${rc}</b>` : '');
+  $('stStatus').innerHTML = bits.join('<span class="sep"> · </span>');
+  $('stRight').innerHTML = right;
 }
 
-function baseAtEvent(e) {
-  const row = e.target.closest('.row');
-  if (!row) return null;
-  const seqcol = row.querySelector('.seqcol');
-  const kids = [...seqcol.querySelectorAll('b')];
-  const start = Math.round(parseFloat(row.style.top) / ROW_H) * COLS;
-  const idx = kids.indexOf(e.target);
-  if (idx >= 0) return start + idx;
-  // Clicked the gap between groups: fall back to horizontal position.
-  const r = seqcol.getBoundingClientRect();
-  const frac = (e.clientX - r.left) / r.width;
-  return start + Math.max(0, Math.min(COLS - 1, Math.floor(frac * COLS)));
+function paint() {
+  if (!analyzer) return;
+  drawStatus();
+  if (view === 'seq') { renderRows(); drawMinimap(); }
+  else if (view === 'cgr') drawCgr();
+  else if (view === 'skew') drawSkew();
+  else if (view === 'hist') drawHist();
 }
-
-function initEditor() {
-  const view = $('view');
-  view.onscroll = () => { renderRows(); drawMinimap(); };
-
-  view.onmousedown = e => {
-    const p = baseAtEvent(e);
-    if (p === null) return;
-    dragFrom = p; sel = { lo: p, hi: p + 1 };
-    renderRows(); describeSelection();
-    e.preventDefault();
-  };
-  view.onmousemove = e => {
-    if (dragFrom === null) return;
-    const p = baseAtEvent(e);
-    if (p === null) return;
-    sel = { lo: Math.min(dragFrom, p), hi: Math.max(dragFrom, p) + 1 };
-    renderRows(); describeSelection();
-  };
-  window.addEventListener('mouseup', () => { dragFrom = null; });
-
-  $('minimap').onclick = e => {
-    const r = e.currentTarget.getBoundingClientRect();
-    scrollToBase(((e.clientX - r.left) / r.width) * analyzer.seq_len());
-  };
-
-  $('seek').onkeydown = e => {
-    if (e.key !== 'Enter') return;
-    const v = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
-    if (!isNaN(v)) scrollToBase(v);
-  };
-
-  const runFind = () => {
-    const m = $('motif').value.trim().toUpperCase().replace(/[^ACGTUN]/g, '');
-    if (!m) { motif = ''; renderRows(); describeSelection(); return; }
-    // Searching again from just past the current hit is what "next" means.
-    const from = sel && motif === m ? sel.lo + 1 : 0;
-    let at = analyzer.find_motif(m, from);
-    if (at < 0 && from > 0) at = analyzer.find_motif(m, 0);
-    if (at < 0) {
-      motif = '';
-      $('efoot').innerHTML = `<b>${m}</b> not found`;
-      renderRows();
-      return;
-    }
-    motif = m;
-    sel = { lo: at, hi: at + m.length };
-    scrollToBase(at);
-    describeSelection();
-    $('efoot').innerHTML += ` &middot; <b>${bp(analyzer.count_motif(m))}</b> total matches`;
-  };
-  $('findNext').onclick = runFind;
-  $('motif').onkeydown = e => { if (e.key === 'Enter') runFind(); };
-}
-
-function drawEditor() {
-  if (analyzer.seq_len() === 0) return;
-  $('editor').classList.remove('hide');
-  renderRows(); drawMinimap(); describeSelection();
-}
-
-function paint() { drawStats(); drawCgr(); drawSkew(); drawHist(); drawEditor(); }
-
-// Coalesce mid-stream repaints through rAF so parsing is not throttled by
-// drawing. The final paint is synchronous: rAF does not fire in a background
-// tab, and a result that only appears when you switch back is a result you
-// cannot trust.
 function redraw() {
   if (rafPending) return;
   rafPending = true;
   requestAnimationFrame(() => { rafPending = false; paint(); });
 }
-
-// A parse that finishes while hidden should be on screen when you come back.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && analyzer) paint();
 });
+addEventListener('resize', redraw);
 
+/* ── loading ───────────────────────────────────────────────────────────── */
 async function analyze(stream, total, label) {
-  panels.classList.remove('hide');
-  $('histCard').classList.add('hide');
-  // Order 9 gives a 512-square: every 9-mer, one per pixel.
+  $('empty').classList.add('hide');
+  $('dot').classList.remove('idle');
+  sel = null; motif = ''; $('motif').value = '';
   analyzer = new Analyzer(9, 10000);
-  sel = null; motif = ''; $('view').scrollTop = 0;
+  $('view').scrollTop = 0;
+  setView(view);
+
   const reader = stream.getReader();
   let read = 0, t0 = performance.now(), lastPaint = 0;
   for (;;) {
@@ -541,61 +499,120 @@ async function analyze(stream, total, label) {
     if (done) break;
     analyzer.push(value);
     read += value.length;
-    prog.style.width = (total ? (read / total * 100) : 50).toFixed(1) + '%';
-    // Repaint a few times a second so the page fills in as the file streams.
-    // Deliberately no finish() here — it closes the in-progress record, which
-    // would split one long sequence into a new "read" at every repaint.
-    //
-    // Only yield when the tab is actually visible. A hidden tab has no UI to
-    // keep responsive, and browsers clamp setTimeout to about a second in the
-    // background — yielding there turns a 120 ms parse into a 20 s one.
+    // Yield only when visible: browsers clamp setTimeout to ~1s in a hidden
+    // tab, which would turn a 120 ms parse into a 20 s one.
     if (document.visibilityState === 'visible' && performance.now() - lastPaint > 250) {
       lastPaint = performance.now();
       redraw();
-      status.textContent = `${label} — ${fmt(read)}B read`;
+      $('stStatus').textContent = `reading ${label} — ${fmt(read)} B`;
       await new Promise(r => setTimeout(r, 0));
     }
   }
   analyzer.finish();
   paint();
-  prog.style.width = '100%';
+  $('dot').classList.add('idle');
+
   const ms = performance.now() - t0;
-  const mbs = (read / 1e6) / (ms / 1000);
-  status.textContent = `${label} — ${fmt(analyzer.bases())} bases in ${ms.toFixed(0)} ms (${mbs.toFixed(0)} MB/s), entirely in this tab`;
+  const head = analyzer.header();
+  $('chip').classList.remove('hide');
+  $('chipName').textContent = label;
+  $('chipDesc').textContent = head ? '· ' + head.slice(0, 80) : '';
+  $('chip').title = `${label}\n${head}\n${bp(analyzer.bases())} bp in ${ms.toFixed(0)} ms`;
 }
 
-function handleFile(f) {
-  status.textContent = 'reading…';
-  analyze(f.stream(), f.size, f.name);
-}
+function openFile(f) { analyze(f.stream(), f.size, f.name); }
 
-$('drop').addEventListener('click', e => { if (e.target.tagName !== 'BUTTON') $('file').click(); });
-$('file').addEventListener('change', e => e.target.files[0] && handleFile(e.target.files[0]));
-['dragover','dragenter'].forEach(ev => $('drop').addEventListener(ev, e => {
-  e.preventDefault(); $('drop').classList.add('hot');
-}));
-['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => {
-  e.preventDefault(); $('drop').classList.remove('hot');
-}));
-$('drop').addEventListener('drop', e => e.dataTransfer.files[0] && handleFile(e.dataTransfer.files[0]));
+/* ── events ────────────────────────────────────────────────────────────── */
+$('rail').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (b) setView(b.dataset.v);
+});
+$('openBtn').onclick = () => $('file').click();
+$('dz').onclick = () => $('file').click();
+$('file').onchange = e => e.target.files[0] && openFile(e.target.files[0]);
 
-document.querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', async () => {
-  status.textContent = `fetching ${b.dataset.s}…`;
+document.querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
+  $('stStatus').textContent = `fetching ${b.dataset.s}…`;
   try {
     const res = await fetch('data/' + b.dataset.s);
     if (!res.ok) throw new Error(res.status);
     await analyze(res.body, +res.headers.get('content-length') || 0, b.dataset.s);
-  } catch (err) {
-    status.textContent = `could not load ${b.dataset.s} — run scripts/fetch-data.sh`;
+  } catch {
+    $('stStatus').textContent = `could not load ${b.dataset.s} — run scripts/fetch-data.sh`;
   }
-}));
+});
 
-initEditor();
-$('gamma').addEventListener('input', () => analyzer && drawCgr());
-$('pal').addEventListener('click', () => {
+let dragDepth = 0;
+addEventListener('dragenter', e => { e.preventDefault(); if (++dragDepth === 1) document.body.classList.add('dragging'); });
+addEventListener('dragleave', e => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => {
+  e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
+  if (e.dataTransfer.files[0]) openFile(e.dataTransfer.files[0]);
+});
+
+$('palBtn').onclick = () => {
   palette = (palette + 1) % 3;
-  $('pal').textContent = PALETTES[palette];
-  if (analyzer) { drawCgr(); drawHist(); }
+  localStorage.gcatPalette = palette;
+  $('palBtn').textContent = PALETTES[palette];
+  if (analyzer) paint();
+};
+$('gamma').oninput = () => analyzer && view === 'cgr' && drawCgr();
+
+const v = $('view');
+v.onscroll = () => { renderRows(); drawMinimap(); };
+function baseAtEvent(e) {
+  const row = e.target.closest('.row'); if (!row) return null;
+  const col = row.querySelector('.seqcol');
+  const start = Math.round(parseFloat(row.style.top) / ROW_H) * COLS;
+  const idx = [...col.querySelectorAll('b')].indexOf(e.target);
+  if (idx >= 0) return start + idx;
+  const r = col.getBoundingClientRect();
+  return start + Math.max(0, Math.min(COLS - 1, Math.floor((e.clientX - r.left) / r.width * COLS)));
+}
+v.onmousedown = e => {
+  const p = baseAtEvent(e); if (p === null) return;
+  dragFrom = p; sel = { lo: p, hi: p + 1 };
+  renderRows(); drawStatus(); e.preventDefault();
+};
+v.onmousemove = e => {
+  if (dragFrom === null) return;
+  const p = baseAtEvent(e); if (p === null) return;
+  sel = { lo: Math.min(dragFrom, p), hi: Math.max(dragFrom, p) + 1 };
+  renderRows(); drawStatus();
+};
+addEventListener('mouseup', () => { dragFrom = null; });
+
+$('minimap').onclick = e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  scrollToBase(((e.clientX - r.left) / r.width) * analyzer.seq_len());
+};
+$('seek').onkeydown = e => {
+  if (e.key !== 'Enter') return;
+  const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
+  if (!isNaN(n)) scrollToBase(n);
+};
+function runFind() {
+  const m = $('motif').value.trim().toUpperCase().replace(/[^ACGTUN]/g, '');
+  if (!m) { motif = ''; renderRows(); drawStatus(); return; }
+  const from = sel && motif === m ? sel.lo + 1 : 0;
+  let at = analyzer.find_motif(m, from);
+  if (at < 0 && from > 0) at = analyzer.find_motif(m, 0);
+  if (at < 0) { motif = ''; renderRows(); $('stRight').innerHTML = `<b>${m}</b> not found`; return; }
+  motif = m; sel = { lo: at, hi: at + m.length };
+  scrollToBase(at); drawStatus();
+  $('stRight').innerHTML += ` · <b>${bp(analyzer.count_motif(m))}</b> × <b>${m}</b>`;
+}
+$('findNext').onclick = runFind;
+$('motif').onkeydown = e => { if (e.key === 'Enter') runFind(); };
+
+addEventListener('keydown', e => {
+  const typing = /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
+  if ((e.metaKey || e.ctrlKey) && e.key === 'o') { e.preventDefault(); $('file').click(); return; }
+  if (typing) { if (e.key === 'Escape') e.target.blur(); return; }
+  if (e.key >= '1' && e.key <= '4') setView(['seq','cgr','skew','hist'][+e.key - 1]);
+  else if (e.key === '/') { e.preventDefault(); setView('seq'); $('motif').focus(); }
+  else if (e.key === 'g') { e.preventDefault(); setView('seq'); $('seek').focus(); }
+  else if (e.key === 'Escape') { sel = null; motif = ''; $('motif').value = ''; if (analyzer) paint(); }
 });
 </script>
 </body>

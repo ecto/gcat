@@ -184,3 +184,14 @@ fn bare_sequence_without_a_header_still_parses() {
     assert_eq!(a.bases(), 20.0);
     assert_eq!(a.seq_len(), 20.0);
 }
+
+#[test]
+fn captures_the_first_header_only() {
+    let a = feed(FASTA, 5);
+    assert_eq!(a.header(), "chr1 test");
+    let q = feed(FASTQ, 5);
+    assert_eq!(q.header(), "r1");
+    // No header at all is not an error.
+    let bare = feed(b"ACGTACGT\n", 3);
+    assert_eq!(bare.header(), "");
+}

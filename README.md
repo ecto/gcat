@@ -67,9 +67,13 @@ wasm-pack build crates/gcat-wasm --target web --out-dir ../../site/pkg --release
 python3 -m http.server 8731 --directory site
 ```
 
-Drop a FASTA or FASTQ on the page. It is read with the File API and processed
-in WebAssembly — there is no server to send it to. E. coli's 4.6 Mb streams
-through in about 120 ms in a tab.
+An app, not a page: title bar, view rail, status bar, keyboard shortcuts, and
+panes that fill the viewport. `1`–`4` switch views, `/` finds a motif, `g` jumps
+to a base, `esc` clears. Palette and last view persist.
+
+Drop a FASTA or FASTQ anywhere in the window. It is read with the File API and
+processed in WebAssembly — there is no server to send it to. E. coli's 4.6 Mb
+streams through in about 120 ms.
 
 **A hex editor for DNA.** Offsets down the left, bases in the middle coloured
 by nucleotide, GC and Phred quality in the gutter. Rows are virtualized, so a
