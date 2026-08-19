@@ -67,6 +67,12 @@ wasm-pack build crates/gcat-wasm --target web --out-dir ../../site/pkg --release
 python3 -m http.server 8731 --directory site
 ```
 
+Pure black, with the palette from campedersen.com — gold as the interface
+accent, and bases on the Sanger convention drawn from the same ramp: A lime,
+C sky, G orange, T red. Gold is deliberately not a base colour, because a
+letter sharing its colour with the selection highlight makes both harder to
+read.
+
 An app, not a page: title bar, view rail, status bar, keyboard shortcuts, and
 panes that fill the viewport. `1`–`4` switch views, `/` finds a motif, `g` jumps
 to a base, `esc` clears. Palette and last view persist.

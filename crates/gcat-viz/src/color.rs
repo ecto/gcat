@@ -23,8 +23,12 @@ impl Palette {
         match self {
             // Piecewise-linear ramps. Three stops are enough for a histogram
             // and avoid the banding a two-stop lerp shows in the midtones.
-            Palette::Ember => ramp(t, (14, 12, 20), (150, 55, 45), (250, 220, 150)),
-            Palette::Ice => ramp(t, (250, 250, 252), (70, 130, 200), (10, 30, 70)),
+            //
+            // Ember starts at true black so empty cells vanish into a black
+            // page rather than sitting on a faintly blue square, then climbs
+            // through orange to gold.
+            Palette::Ember => ramp(t, (0, 0, 0), (214, 62, 0), (255, 192, 20)),
+            Palette::Ice => ramp(t, (255, 255, 255), (26, 168, 255), (0, 40, 90)),
             Palette::Mono => ramp(t, (16, 16, 16), (128, 128, 128), (245, 245, 245)),
         }
     }

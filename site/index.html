@@ -8,38 +8,49 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <style>
 :root{
-  --bg:250 250 250;--panel:255 255 255;--rail:244 244 242;--txt:26 26 26;
-  --muted:105 105 102;--dim:150 150 146;--accent:180 83 9;--line:224 224 220;
-  --A:15 110 86;--C:24 95 165;--G:133 79 11;--T:153 60 29;
+  /* Berkeley Mono if the reader has it, as on the site. */
+  --mono:'berkeleyMono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  /* campedersen.com palette. Light mode. */
+  --bg:255 255 255;--panel:255 255 255;--rail:246 248 250;
+  --txt:31 31 31;--strong:0 0 0;--muted:108 108 108;--dim:150 150 150;
+  --line:225 228 232;--accent:156 112 0;
+  --A:63 143 0;--C:0 114 214;--G:214 62 0;--T:209 31 21;
 }
 @media(prefers-color-scheme:dark){:root{
-  --bg:12 12 14;--panel:22 22 25;--rail:17 17 20;--txt:245 245 247;
-  --muted:135 135 142;--dim:88 88 95;--accent:245 158 11;--line:42 42 48;
-  --A:79 191 155;--C:95 168 232;--G:232 163 61;--T:238 138 107;
+  /* Pure black, as the site does it. Chrome lifts off the ground rather than
+     the content sitting on grey. */
+  --bg:0 0 0;--panel:15 15 15;--rail:10 10 10;
+  --txt:217 217 217;--strong:242 242 242;--muted:128 128 128;--dim:88 88 88;
+  --line:34 34 34;--accent:255 192 20;
+  /* Bases follow the Sanger convention — A green, C blue, G orange, T red —
+     drawn from the site's own accent ramp. Gold is deliberately absent: it is
+     the interface accent, and a letter that shares a colour with the selection
+     highlight makes both harder to read. */
+  --A:139 219 22;--C:26 168 255;--G:255 125 23;--T:255 71 71;
 }}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%;overflow:hidden}
 body{background:rgb(var(--bg));color:rgb(var(--txt));
   font:14px/1.5 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
   -webkit-font-smoothing:antialiased}
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.mono{font-family:var(--mono)}
 
 /* — shell — */
 .app{display:grid;grid-template-rows:auto 1fr auto;height:100dvh}
 .titlebar{display:flex;align-items:center;gap:.75rem;padding:0 .85rem;height:44px;
   background:rgb(var(--rail));border-bottom:1px solid rgb(var(--line));flex:0 0 auto}
-.brand{font-family:ui-monospace,monospace;font-weight:600;font-size:1rem;letter-spacing:-.01em}
+.brand{font-family:var(--mono);font-weight:600;font-size:1rem;letter-spacing:-.01em}
 .brand em{color:rgb(var(--accent));font-style:normal}
 .chip{display:flex;align-items:center;gap:.45rem;padding:.2rem .55rem;border-radius:6px;
   background:rgb(var(--panel));border:1px solid rgb(var(--line));font-size:.78rem;
   max-width:46vw;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.chip b{font-family:ui-monospace,monospace;font-weight:500}
+.chip b{font-family:var(--mono);font-weight:500}
 .chip span{color:rgb(var(--muted));overflow:hidden;text-overflow:ellipsis}
 .grow{flex:1}
 .tb{font:inherit;font-size:.78rem;padding:.28rem .6rem;border:1px solid rgb(var(--line));border-radius:6px;
   background:rgb(var(--panel));color:rgb(var(--txt));cursor:pointer;white-space:nowrap}
 .tb:hover{border-color:rgb(var(--accent));color:rgb(var(--accent))}
-.tb kbd{font-family:ui-monospace,monospace;font-size:.68rem;color:rgb(var(--dim));margin-left:.35rem}
+.tb kbd{font-family:var(--mono);font-size:.68rem;color:rgb(var(--dim));margin-left:.35rem}
 
 .body{display:grid;grid-template-columns:auto 1fr;min-height:0}
 .rail{width:132px;background:rgb(var(--rail));border-right:1px solid rgb(var(--line));
@@ -49,7 +60,7 @@ body{background:rgb(var(--bg));color:rgb(var(--txt));
   color:rgb(var(--muted));cursor:pointer}
 .rail button:hover{background:rgb(var(--panel));color:rgb(var(--txt))}
 .rail button[aria-selected=true]{background:rgb(var(--accent)/.13);color:rgb(var(--accent));font-weight:500}
-.rail button i{font-family:ui-monospace,monospace;font-size:.66rem;color:rgb(var(--dim));font-style:normal}
+.rail button i{font-family:var(--mono);font-size:.66rem;color:rgb(var(--dim));font-style:normal}
 .rail button[aria-selected=true] i{color:rgb(var(--accent));opacity:.7}
 .rail hr{border:0;border-top:1px solid rgb(var(--line));margin:.5rem .3rem}
 .railnote{font-size:.68rem;color:rgb(var(--dim));padding:.3rem .55rem;line-height:1.45;margin-top:auto}
@@ -58,9 +69,9 @@ body{background:rgb(var(--bg));color:rgb(var(--txt));
 .pane{display:none;flex:1;min-height:0;flex-direction:column}
 .pane.on{display:flex}
 .panehead{display:flex;align-items:center;gap:.6rem;padding:.5rem .85rem;flex:0 0 auto;flex-wrap:wrap}
-.panehead h2{font-size:.85rem;font-weight:500}
+.panehead h2{font-size:.85rem;font-weight:500;color:rgb(var(--strong))}
 .panehead p{font-size:.75rem;color:rgb(var(--muted))}
-.field{font-family:ui-monospace,monospace;font-size:.75rem;padding:.25rem .5rem;
+.field{font-family:var(--mono);font-size:.75rem;padding:.25rem .5rem;
   border:1px solid rgb(var(--line));border-radius:6px;background:rgb(var(--panel));
   color:rgb(var(--txt));width:9rem}
 .field::placeholder{color:rgb(var(--dim))}
@@ -71,13 +82,13 @@ canvas{display:block;max-width:100%;max-height:100%}
 #hist,#skew{width:100%;border-radius:8px}
 
 /* — editor — */
-.ruler{font-family:ui-monospace,monospace;font-size:.66rem;color:rgb(var(--dim));
+.ruler{font-family:var(--mono);font-size:.66rem;color:rgb(var(--dim));
   padding:.15rem .85rem .3rem;white-space:pre;overflow:hidden;flex:0 0 auto}
 .view{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
   /* The spacer grows as the file streams; without this Chrome's scroll
      anchoring drifts the view away from where the user left it. */
   overflow-anchor:none;
-  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;line-height:18px}
+  font-family:var(--mono);font-size:.78rem;line-height:18px}
 .view::-webkit-scrollbar{width:11px}
 .view::-webkit-scrollbar-thumb{background:rgb(var(--line));border-radius:6px}
 .view::-webkit-scrollbar-thumb:hover{background:rgb(var(--dim))}
@@ -101,9 +112,9 @@ canvas{display:block;max-width:100%;max-height:100%}
 /* — status bar — */
 .status{display:flex;align-items:center;gap:.9rem;height:26px;padding:0 .85rem;
   background:rgb(var(--rail));border-top:1px solid rgb(var(--line));
-  font-family:ui-monospace,monospace;font-size:.7rem;color:rgb(var(--muted));
+  font-family:var(--mono);font-size:.7rem;color:rgb(var(--muted));
   overflow:hidden;white-space:nowrap;flex:0 0 auto}
-.status b{color:rgb(var(--txt));font-weight:500}
+.status b{color:rgb(var(--strong));font-weight:500}
 .status .sep{color:rgb(var(--line))}
 .status .right{margin-left:auto;display:flex;gap:.9rem;align-items:center}
 .dot{width:6px;height:6px;border-radius:50%;background:rgb(var(--accent));flex:0 0 auto}
@@ -112,14 +123,14 @@ canvas{display:block;max-width:100%;max-height:100%}
 /* — empty state — */
 .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
   gap:1.1rem;padding:2rem;text-align:center}
-.empty h1{font-size:1.6rem;font-weight:600;letter-spacing:-.02em}
+.empty h1{font-size:1.6rem;font-weight:600;letter-spacing:-.02em;color:rgb(var(--strong))}
 .empty p{color:rgb(var(--muted));max-width:34rem;font-size:.9rem}
 .dz{border:1.5px dashed rgb(var(--line));border-radius:12px;padding:1.6rem 2.4rem;cursor:pointer;
   transition:border-color .15s,background .15s}
 .dz:hover,.dz.hot{border-color:rgb(var(--accent));background:rgb(var(--accent)/.06)}
 .samples{display:flex;gap:.4rem;flex-wrap:wrap;justify-content:center}
 .kbd{display:flex;gap:1rem;font-size:.72rem;color:rgb(var(--dim));flex-wrap:wrap;justify-content:center}
-.kbd kbd{font-family:ui-monospace,monospace;border:1px solid rgb(var(--line));border-radius:4px;
+.kbd kbd{font-family:var(--mono);border:1px solid rgb(var(--line));border-radius:4px;
   padding:0 .3rem;color:rgb(var(--muted))}
 .hide{display:none!important}
 .dragging::after{content:'';position:fixed;inset:0;border:2px solid rgb(var(--accent));
@@ -286,7 +297,7 @@ function drawSkew() {
   c.style.width = W + 'px'; c.style.height = H + 'px';
   const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
   const css = getComputedStyle(document.body);
-  const ink = css.color, accent = css.getPropertyValue('--accent').trim();
+  const ink = `rgb(${css.getPropertyValue('--strong').trim()})`, accent = css.getPropertyValue('--accent').trim();
   const pts = analyzer.skew_curve();
   if (pts.length < 4) { $('skewNote').textContent = 'Sequence too short for a curve.'; return; }
 
@@ -317,7 +328,7 @@ function drawSkew() {
     ctx.strokeStyle = ink; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(X(pos), top - 12); ctx.lineTo(X(pos), H - pad + 4); ctx.stroke();
     ctx.restore();
-    ctx.fillStyle = ink; ctx.globalAlpha = .75; ctx.font = '11px ui-monospace, monospace';
+    ctx.fillStyle = ink; ctx.globalAlpha = .75; ctx.font = '11px ' + css.getPropertyValue('--mono').trim();
     ctx.textAlign = X(pos) > W / 2 ? 'right' : 'left';
     ctx.fillText(label, X(pos) + (X(pos) > W / 2 ? -6 : 6), top - 18);
     ctx.globalAlpha = 1;
