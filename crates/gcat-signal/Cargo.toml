@@ -1,0 +1,15 @@
+[package]
+name = "gcat-signal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Raw nanopore signal — scaling, windowing, tensor handoff"
+
+[features]
+default = []
+# Emit tang tensors for the compute stack. Off by default so the pure-signal
+# path stays buildable without a tang checkout.
+tang = ["dep:tang-tensor"]
+
+[dependencies]
+tang-tensor = { workspace = true, optional = true }

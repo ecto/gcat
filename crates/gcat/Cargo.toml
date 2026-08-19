@@ -1,0 +1,10 @@
+[package]
+name = "gcat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core genomic types — alphabets, 2-bit packed sequences, k-mers"
+
+[features]
+default = []
+std = []

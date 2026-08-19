@@ -1,0 +1,9 @@
+[package]
+name = "gcat-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Streaming FASTA/FASTQ readers and writers"
+
+[dependencies]
+gcat = { workspace = true }

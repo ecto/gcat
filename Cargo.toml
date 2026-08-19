@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/gcat",
+    "crates/gcat-io",
+    "crates/gcat-signal",
+    "crates/gcat-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/ecto/gcat"
+
+[workspace.dependencies]
+gcat = { version = "0.1.0", path = "crates/gcat" }
+gcat-io = { version = "0.1.0", path = "crates/gcat-io" }
+gcat-signal = { version = "0.1.0", path = "crates/gcat-signal" }
+
+# tang is unpublished; side-by-side checkout at ../tang
+tang = { path = "../tang/crates/tang" }
+tang-tensor = { path = "../tang/crates/tang-tensor" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
