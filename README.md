@@ -48,6 +48,28 @@ the field and the thing this stack is unusually suited to, since it is a
 convolutional/recurrent network over a 1-D signal, which tang already has the
 layers for.
 
+## Test data
+
+```bash
+./scripts/fetch-data.sh
+```
+
+Pulls four reference genomes from NCBI (~4.8 MB): phiX174, lambda phage,
+SARS-CoV-2, and E. coli K-12. Lambda is the nanopore calibration strand and
+phiX174 is the Illumina spike-in control, so both are what a sequencer emits
+when you ask it to prove it works.
+
+Integration tests assert gcat's output against the published length and GC
+content for each accession. They skip when `data/` is absent, so a fresh clone
+still runs green.
+
+| | length | GC |
+|---|---|---|
+| phiX174 | 5,386 | 44.76% |
+| lambda | 48,502 | 49.86% |
+| SARS-CoV-2 | 29,903 | 37.97% |
+| E. coli K-12 | 4,641,652 | 50.79% |
+
 ## Install
 
 ```bash
@@ -84,6 +106,10 @@ averages, and converts back.
 **Med/MAD, not mean/stddev.** Nanopore traces are full of real outliers —
 stalls, blockages, adapter. The median does not chase them. Both are
 implemented; the test suite asserts the difference.
+
+**A file that will not open is an error.** Reading it as an empty stream would
+make `gcat stats typo.fa` report zero records and exit 0, which is worse than
+useless.
 
 **Degenerate inputs return identity, not NaN.** A constant trace has zero
 deviation. Dividing by it would poison every tensor downstream, so scaling falls

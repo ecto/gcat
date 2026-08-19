@@ -59,7 +59,7 @@ const FASTA_WIDTH: usize = 60;
 
 /// Concatenate records to stdout.
 pub fn cat<W: Write>(files: &[String], out: &mut W) -> Fallible {
-    for (_, r) in inputs(files) {
+    for (_, r) in inputs(files)? {
         let mut reader = Reader::new(r);
         while let Some(rec) = reader.next_record()? {
             echo(out, rec.id, rec.seq, rec.qual, FASTA_WIDTH)?;
@@ -72,7 +72,7 @@ pub fn cat<W: Write>(files: &[String], out: &mut W) -> Fallible {
 pub fn head<W: Write>(files: &[String], flags: &HashMap<String, String>, out: &mut W) -> Fallible {
     let n = flag_usize(flags, &["n", "num"], 10);
     let mut seen = 0;
-    for (_, r) in inputs(files) {
+    for (_, r) in inputs(files)? {
         let mut reader = Reader::new(r);
         while let Some(rec) = reader.next_record()? {
             if seen >= n {
@@ -95,7 +95,7 @@ pub fn grep<W: Write>(files: &[String], flags: &HashMap<String, String>, out: &m
     let ids_only = flags.contains_key("id");
     let pat_bytes = pattern.as_bytes();
 
-    for (_, r) in inputs(files) {
+    for (_, r) in inputs(files)? {
         let mut reader = Reader::new(r);
         while let Some(rec) = reader.next_record()? {
             let hit = if ids_only {
@@ -124,7 +124,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 /// Reverse complement every record.
 pub fn rc<W: Write>(files: &[String], out: &mut W) -> Fallible {
-    for (_, r) in inputs(files) {
+    for (_, r) in inputs(files)? {
         let mut reader = Reader::new(r);
         while let Some(rec) = reader.next_record()? {
             let (seq, _) = rec.to_seq_lossy(Base::A)?;
@@ -147,7 +147,7 @@ pub fn kmer<W: Write>(files: &[String], flags: &HashMap<String, String>, out: &m
 
     let mut counts: HashMap<u64, u32> = HashMap::new();
     let mut skipped = 0usize;
-    for (_, r) in inputs(files) {
+    for (_, r) in inputs(files)? {
         let mut reader = Reader::new(r);
         while let Some(rec) = reader.next_record()? {
             // Reads with ambiguity codes are skipped rather than filled: a
@@ -203,7 +203,7 @@ pub fn stats<W: Write>(files: &[String], out: &mut W) -> Fallible {
     let mut qual_sum = 0f64;
     let mut qual_n = 0usize;
 
-    for (_, r) in inputs(files) {
+    for (_, r) in inputs(files)? {
         let mut reader = Reader::new(r);
         while let Some(rec) = reader.next_record()? {
             lengths.push(rec.len());

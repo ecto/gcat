@@ -92,30 +92,28 @@ fn run(command: &str, args: &[String]) -> Fallible {
 pub type Input = (String, Box<dyn BufRead>);
 
 /// Open each input as a buffered reader, treating no files or `-` as stdin.
-pub fn inputs(files: &[String]) -> Vec<Input> {
+///
+/// A file that cannot be opened is an error, not an empty stream: silently
+/// reading nothing would make `gcat stats typo.fa` report zero records and
+/// exit 0, which is worse than useless.
+pub fn inputs(files: &[String]) -> Result<Vec<Input>, Box<dyn std::error::Error>> {
     if files.is_empty() {
-        return vec![(
+        return Ok(vec![(
             "-".into(),
             Box::new(io::BufReader::new(io::stdin())) as Box<dyn BufRead>,
-        )];
+        )]);
     }
-    files
-        .iter()
-        .map(|f| {
-            let r: Box<dyn BufRead> = if f == "-" {
-                Box::new(io::BufReader::new(io::stdin()))
-            } else {
-                match std::fs::File::open(f) {
-                    Ok(file) => Box::new(io::BufReader::new(file)),
-                    Err(e) => {
-                        eprintln!("gcat: {f}: {e}");
-                        Box::new(io::BufReader::new(io::empty()))
-                    }
-                }
-            };
-            (f.clone(), r)
-        })
-        .collect()
+    let mut out = Vec::with_capacity(files.len());
+    for f in files {
+        let r: Box<dyn BufRead> = if f == "-" {
+            Box::new(io::BufReader::new(io::stdin()))
+        } else {
+            let file = std::fs::File::open(f).map_err(|e| format!("{f}: {e}"))?;
+            Box::new(io::BufReader::new(file))
+        };
+        out.push((f.clone(), r));
+    }
+    Ok(out)
 }
 
 /// Echo a record in whatever format it arrived as.
