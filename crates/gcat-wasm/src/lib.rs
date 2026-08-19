@@ -55,7 +55,28 @@ pub struct Analyzer {
     truncated: bool,
     qual_sum: f64,
     qual_n: u64,
+
+    /// Retained sequence for the editor, uppercased ASCII.
+    seq: Vec<u8>,
+    /// Retained Phred bytes, aligned to `seq` while both are within cap.
+    qual: Vec<u8>,
+    seq_truncated: bool,
+    /// Scratch the editor reads through, so rows cross the boundary as a
+    /// pointer rather than as a fresh string per scroll frame.
+    scratch: Vec<u8>,
 }
+
+/// How much sequence to keep for the editor.
+///
+/// Stored as raw ASCII rather than 2-bit packed, because the editor must show
+/// `N` where the genome says `N` — a packed alphabet would have to render
+/// ambiguity as some real base, and a sequence viewer that quietly lies about
+/// its input is worse than one that stops early. At this cap a bacterial genome
+/// fits many times over and the truncation is surfaced in the UI.
+const SEQ_CAP: usize = 32_000_000;
+
+/// Quality costs a byte per base with no packing, so it is capped lower.
+const QUAL_CAP: usize = 8_000_000;
 
 /// Beyond this many reads, stop retaining individual lengths. Summary
 /// statistics stay exact via the running counters; only the exact N50 and
@@ -90,6 +111,10 @@ impl Analyzer {
             truncated: false,
             qual_sum: 0.0,
             qual_n: 0,
+            seq: Vec::new(),
+            qual: Vec::new(),
+            seq_truncated: false,
+            scratch: vec![0u8; 4096],
         }
     }
 
@@ -170,6 +195,17 @@ impl Analyzer {
 
     fn take_sequence(&mut self) {
         let line = core::mem::take(&mut self.line);
+        if self.seq.len() < SEQ_CAP {
+            let room = SEQ_CAP - self.seq.len();
+            let take = room.min(line.len());
+            self.seq
+                .extend(line[..take].iter().map(|b| b.to_ascii_uppercase()));
+            if take < line.len() {
+                self.seq_truncated = true;
+            }
+        } else {
+            self.seq_truncated = true;
+        }
         for &byte in &line {
             match Base::from_ascii(byte) {
                 Some(b) => {
@@ -196,6 +232,11 @@ impl Analyzer {
 
     fn take_quality(&mut self) {
         let line = core::mem::take(&mut self.line);
+        if self.qual.len() < QUAL_CAP {
+            let room = QUAL_CAP - self.qual.len();
+            let take = room.min(line.len());
+            self.qual.extend_from_slice(&line[..take]);
+        }
         for &byte in &line {
             let phred = byte.saturating_sub(33) as f64;
             // Accumulate error probability, not the Phred score: scores are
@@ -372,6 +413,155 @@ impl Analyzer {
             sorted[n - 1] as f64,
             n50,
         ]
+    }
+}
+
+#[wasm_bindgen]
+impl Analyzer {
+    /// Bases retained for the editor.
+    pub fn seq_len(&self) -> f64 {
+        self.seq.len() as f64
+    }
+
+    /// True when the sequence outgrew the retention cap.
+    pub fn seq_truncated(&self) -> bool {
+        self.seq_truncated
+    }
+
+    /// True when Phred bytes are available and aligned with the sequence.
+    pub fn has_quality(&self) -> bool {
+        !self.qual.is_empty()
+    }
+
+    /// Copy `len` bases from `start` into the scratch buffer.
+    ///
+    /// Returns how many bytes were written, which is short at the end of the
+    /// sequence. Read them through [`Analyzer::scratch_ptr`].
+    pub fn read_bases(&mut self, start: usize, len: usize) -> usize {
+        Self::copy_out(&self.seq, &mut self.scratch, start, len)
+    }
+
+    /// Copy `len` Phred bytes from `start` into the scratch buffer.
+    pub fn read_quality(&mut self, start: usize, len: usize) -> usize {
+        Self::copy_out(&self.qual, &mut self.scratch, start, len)
+    }
+
+    fn copy_out(src: &[u8], scratch: &mut Vec<u8>, start: usize, len: usize) -> usize {
+        if start >= src.len() || len == 0 {
+            return 0;
+        }
+        let end = (start + len).min(src.len());
+        let n = end - start;
+        if scratch.len() < n {
+            scratch.resize(n, 0);
+        }
+        scratch[..n].copy_from_slice(&src[start..end]);
+        n
+    }
+
+    /// Pointer to the scratch buffer.
+    pub fn scratch_ptr(&self) -> *const u8 {
+        self.scratch.as_ptr()
+    }
+
+    /// GC fraction over a span, or -1 when the span holds no unambiguous base.
+    pub fn gc_of(&self, start: usize, len: usize) -> f32 {
+        if start >= self.seq.len() {
+            return -1.0;
+        }
+        let end = (start + len).min(self.seq.len());
+        let mut gc = 0u32;
+        let mut known = 0u32;
+        for &b in &self.seq[start..end] {
+            match b {
+                b'G' | b'C' => {
+                    gc += 1;
+                    known += 1;
+                }
+                b'A' | b'T' | b'U' => known += 1,
+                _ => {}
+            }
+        }
+        if known == 0 {
+            -1.0
+        } else {
+            gc as f32 / known as f32
+        }
+    }
+
+    /// GC fraction in each of `bins` equal spans, for the minimap.
+    pub fn gc_profile(&self, bins: usize) -> Vec<f32> {
+        let bins = bins.max(1);
+        let mut out = Vec::with_capacity(bins);
+        if self.seq.is_empty() {
+            return out;
+        }
+        let step = self.seq.len() as f64 / bins as f64;
+        for i in 0..bins {
+            let start = (i as f64 * step) as usize;
+            let end = (((i + 1) as f64 * step) as usize).min(self.seq.len());
+            out.push(self.gc_of(start, end.saturating_sub(start)));
+        }
+        out
+    }
+
+    /// Offset of the next occurrence of `motif` at or after `from`, or -1.
+    ///
+    /// Case-insensitive. `N` in the motif matches any base, so a caller can
+    /// search a degenerate pattern without a regex engine.
+    pub fn find_motif(&mut self, motif: &str, from: usize) -> f64 {
+        let needle: Vec<u8> = motif.bytes().map(|b| b.to_ascii_uppercase()).collect();
+        if needle.is_empty() || needle.len() > self.seq.len() {
+            return -1.0;
+        }
+        let last = self.seq.len() - needle.len();
+        for i in from.min(last + 1)..=last {
+            if Self::matches(&self.seq[i..i + needle.len()], &needle) {
+                return i as f64;
+            }
+        }
+        -1.0
+    }
+
+    /// Count every occurrence of `motif`, overlaps included.
+    pub fn count_motif(&self, motif: &str) -> f64 {
+        let needle: Vec<u8> = motif.bytes().map(|b| b.to_ascii_uppercase()).collect();
+        if needle.is_empty() || needle.len() > self.seq.len() {
+            return 0.0;
+        }
+        let mut n = 0f64;
+        for i in 0..=(self.seq.len() - needle.len()) {
+            if Self::matches(&self.seq[i..i + needle.len()], &needle) {
+                n += 1.0;
+            }
+        }
+        n
+    }
+
+    fn matches(window: &[u8], needle: &[u8]) -> bool {
+        window
+            .iter()
+            .zip(needle)
+            .all(|(&a, &b)| b == b'N' || a == b || (b == b'T' && a == b'U'))
+    }
+
+    /// Reverse complement of a span, as a string for the selection readout.
+    pub fn revcomp_of(&self, start: usize, len: usize) -> String {
+        if start >= self.seq.len() {
+            return String::new();
+        }
+        let end = (start + len).min(self.seq.len());
+        self.seq[start..end]
+            .iter()
+            .rev()
+            .map(|&b| match b {
+                b'A' => 'T',
+                b'T' | b'U' => 'A',
+                b'C' => 'G',
+                b'G' => 'C',
+                _ => 'N',
+            })
+            .collect()
     }
 }
 

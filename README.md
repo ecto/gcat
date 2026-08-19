@@ -71,7 +71,17 @@ Drop a FASTA or FASTQ on the page. It is read with the File API and processed
 in WebAssembly — there is no server to send it to. E. coli's 4.6 Mb streams
 through in about 120 ms in a tab.
 
-Three views, all computed in one pass:
+**A hex editor for DNA.** Offsets down the left, bases in the middle coloured
+by nucleotide, GC and Phred quality in the gutter. Rows are virtualized, so a
+4.6 Mb genome is 77,000 rows of which only the ~28 on screen exist in the DOM.
+Drag to select and get length, GC, and reverse complement; type a motif to
+search it, `N` acting as a wildcard. The minimap along the bottom shows GC
+deviation across the whole sequence — click it to jump.
+
+Searching lambda for `GAATTC` returns 5 hits, which is exactly how many EcoRI
+sites lambda phage has.
+
+Three more views, all computed in the same pass:
 
 **Chaos game k-mer map.** Each base pulls a point halfway toward its corner of
 a square. The usual description makes this sound like a random walk, but after
