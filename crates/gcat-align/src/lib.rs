@@ -314,3 +314,45 @@ pub fn align(reference: &[u8], query: &[u8]) -> Alignment {
     }
 }
 
+
+/// How many times a 12-mer may occur in `a` and still be plotted. Past this a
+/// dot plot of a whole genome is solid with transposon copies and simple
+/// repeats, which say nothing about where two sequences correspond.
+const DOT_MAX_OCC: usize = 32;
+
+/// A dot plot as a density grid: every exact 12-mer match between `a`
+/// (columns) and `b` (rows), binned to `size` × `size`. Returns two grids
+/// back to back, row-major: matches on the same strand, then matches
+/// between `a` and the reverse complement of `b`, which is where an
+/// inversion or a palindrome shows up.
+///
+/// The plot reads as: a diagonal where the sequences agree, a gap in it
+/// where one lost a stretch, a parallel line where a stretch repeats, and a
+/// line in the other grid running the other way where one is inverted.
+pub fn dot_plot(a: &[u8], b: &[u8], size: usize) -> Vec<u32> {
+    let mut out = vec![0u32; 2 * size * size];
+    if a.len() < K || b.len() < K || size == 0 {
+        return out;
+    }
+    const LOW: u64 = 0xffff_ffff;
+    let index = kmers(a);
+    let cell = |pos: usize, len: usize| (pos * size / len).min(size - 1);
+    for (grid, query) in [(0, b.to_vec()), (1, revcomp(b))] {
+        for entry in kmers(&query) {
+            let (km, qp) = (entry >> 32, (entry & LOW) as usize);
+            let lo = index.partition_point(|&e| e >> 32 < km);
+            let hi = index.partition_point(|&e| e >> 32 <= km);
+            if hi == lo || hi - lo > DOT_MAX_OCC {
+                continue;
+            }
+            // Position in `b` itself, so both grids share the same axes.
+            let bp = if grid == 0 { qp } else { b.len() - K - qp };
+            let y = cell(bp, b.len());
+            for &e in &index[lo..hi] {
+                let x = cell((e & LOW) as usize, a.len());
+                out[grid * size * size + y * size + x] += 1;
+            }
+        }
+    }
+    out
+}

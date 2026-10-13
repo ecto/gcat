@@ -461,6 +461,21 @@ impl Analyzer {
             .collect()
     }
 
+    /// A dot plot of the retained sequence (columns) against a second FASTA
+    /// (rows), or against itself when `fasta` is empty: two `size`²
+    /// grids of match counts, same strand then reverse complement.
+    pub fn dot_plot(&self, fasta: &str, size: usize) -> Vec<u32> {
+        if fasta.is_empty() {
+            return gcat_align::dot_plot(&self.seq, &self.seq, size);
+        }
+        let mut reader = gcat_io::Reader::new(fasta.as_bytes());
+        let other = match reader.next_record() {
+            Ok(Some(rec)) => rec.seq.to_ascii_uppercase(),
+            _ => fasta.bytes().filter(u8::is_ascii_alphabetic).map(|b| b.to_ascii_uppercase()).collect(),
+        };
+        gcat_align::dot_plot(&self.seq, &other, size)
+    }
+
     /// Where base 0 of the editor sits in that sequence's coordinates. Non-zero
     /// when the header names a subrange, as NCBI and faidx extracts do.
     pub fn seq_offset(&self) -> f64 {

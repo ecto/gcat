@@ -85,3 +85,26 @@ fn identity_is_windowed_and_blank_where_unaligned() {
     let blank = align(&r, &random_seq(3000, 10)).identity(50);
     assert!(blank.iter().all(Option::is_none));
 }
+
+#[test]
+fn dot_plot_draws_the_diagonal_and_an_inversion() {
+    use gcat_align::dot_plot;
+    let a = random_seq(4000, 12);
+    let n = 8;
+    let same = dot_plot(&a, &a, n);
+    for i in 0..n {
+        assert!(same[i * n + i] > 0, "diagonal cell {i} empty");
+    }
+    let off: u32 = (0..n).flat_map(|y| (0..n).filter(move |&x| x != y).map(move |x| (y, x))).map(|(y, x)| same[y * n + x]).sum();
+    let on: u32 = (0..n).map(|i| same[i * n + i]).sum();
+    assert!(off * 50 < on, "random sequence should be nearly empty off the diagonal");
+
+    // Invert the second half of b: its matches move to the reverse grid,
+    // running against the diagonal.
+    let b: Vec<u8> = a[..2000].iter().copied().chain(revcomp(&a[2000..])).collect();
+    let plot = dot_plot(&a, &b, n);
+    let rev = &plot[n * n..];
+    assert!(rev[(n - 1) * n + n / 2] > 0, "start of the inverted half pairs with the end of b");
+    assert!(rev[(n / 2) * n + n - 1] > 0);
+    assert_eq!(rev[0], 0);
+}

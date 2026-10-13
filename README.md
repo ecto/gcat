@@ -75,7 +75,7 @@ letter sharing its colour with the selection highlight makes both harder to
 read.
 
 An app, not a page: title bar, view rail, status bar, keyboard shortcuts, and
-panes that fill the viewport. `1`–`4` switch views, `/` finds a motif, `g` jumps
+panes that fill the viewport. `1`–`5` switch views, `/` finds a motif, `g` jumps
 to a base, `esc` clears. Palette and last view persist.
 
 Drop a FASTA or FASTQ anywhere in the window. It is read with the File API and
@@ -92,7 +92,7 @@ deviation across the whole sequence — click it to jump.
 Searching lambda for `GAATTC` returns 5 hits, which is exactly how many EcoRI
 sites lambda phage has.
 
-Three more views, all computed in the same pass:
+Three more views, all computed in the same pass, and a dot plot:
 
 **Chaos game k-mer map.** Each base pulls a point halfway toward its corner of
 a square. The usual description makes this sound like a random walk, but after
@@ -109,6 +109,13 @@ reference, no database.
 **Read length against quality.** A 2-D histogram rather than a scatter, so it
 holds up at ten million reads. Answers the question neither axis answers alone:
 are the long reads also the good ones?
+
+**Dot plot.** Every 12-mer the open sequence shares with itself, or with a
+species opened after it, binned to a square: a diagonal where they agree, a gap
+or step where one lost sequence, parallel lines for repeats, red lines against
+the grain for inversions. Hover a pixel for both positions. Cat against itself
+shows no repeat linking the two ends of the orange deletion, so it was a clean
+break rather than a slip between repeats.
 
 **Annotation and comparison.** Open a GFF3, BED or bedGraph with a sequence,
 or after it, and a track appears above the editor: genes to scale with exons
@@ -128,7 +135,7 @@ Tiger, dog, human and mouse lanes show most of the deleted stretch is shared
 across mammals. A calico panel beside the track simulates the X-inactivation
 that turns one allele into patches.
 
-The wasm bundle is 118 KB, 57 KB gzipped.
+The wasm bundle is 121 KB, 58 KB gzipped.
 
 ## Test data
 

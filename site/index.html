@@ -80,6 +80,7 @@ body{background:rgb(var(--bg));color:rgb(var(--txt));
 canvas{display:block;max-width:100%;max-height:100%}
 #cgr{image-rendering:pixelated;border-radius:8px}
 #hist,#skew{width:100%;border-radius:8px}
+#dot{cursor:crosshair}
 
 /* — editor — */
 .ruler{font-family:var(--mono);font-size:.66rem;color:rgb(var(--dim));
@@ -171,6 +172,7 @@ canvas{display:block;max-width:100%;max-height:100%}
       <button data-v="cgr" aria-selected="false" title="Chaos game map: each pixel is a short word of DNA, brighter the more often it occurs">k-mer map<i>2</i></button>
       <button data-v="skew" aria-selected="false" title="Running G-minus-C balance; its turning points mark where a bacterial chromosome starts and ends replication">GC skew<i>3</i></button>
       <button data-v="hist" aria-selected="false" title="Read length against quality, for FASTQ files">Quality<i>4</i></button>
+      <button data-v="dot" aria-selected="false" title="Every shared 12-letter word between two sequences: diagonals are where they agree">Dot plot<i>5</i></button>
       <hr>
       <p class="railnote">Everything runs in this tab. Nothing is uploaded.</p>
     </nav>
@@ -194,7 +196,7 @@ canvas{display:block;max-width:100%;max-height:100%}
           <button class="tb" data-s="sample.fq">reads &middot; FASTQ</button>
         </div>
         <div class="kbd">
-          <span><kbd>1</kbd>&ndash;<kbd>4</kbd> views</span>
+          <span><kbd>1</kbd>&ndash;<kbd>5</kbd> views</span>
           <span><kbd>/</kbd> find motif</span>
           <span><kbd>g</kbd> go to base</span>
           <span><kbd>esc</kbd> clear</span>
@@ -250,6 +252,17 @@ canvas{display:block;max-width:100%;max-height:100%}
         </div>
         <div class="canvaswrap"><canvas id="hist"></canvas></div>
       </section>
+
+      <section class="pane" id="pane-dot">
+        <div class="panehead">
+          <h2>Dot plot</h2>
+          <p id="dotNote"></p>
+          <span class="grow"></span>
+          <label style="font-size:.72rem;color:rgb(var(--muted))" for="dotAgainst">against</label>
+          <select class="field" id="dotAgainst" title="Plot the open sequence against itself, or against a species opened after it"></select>
+        </div>
+        <div class="canvaswrap" id="dotWrap"><canvas id="dot"></canvas></div>
+      </section>
     </main>
   </div>
 
@@ -269,6 +282,8 @@ let rafPending = false, sel = null, dragFrom = null, motif = '';
 // Annotation attached to the open sequence, and its regions as [lo, hi)
 // editor offsets for the row renderer, which checks them per base.
 let ann = null, regions = [], trackX = null, locusHits = [];
+// Species opened after the sequence, kept for the dot plot's picker.
+let comparisons = [], dotCache = null;
 const ANN_EXT = /\.(gff3?|bed|bedgraph|bdg)$/i;
 const PALETTES = ['ember', 'ice', 'mono'];
 const COLS = 60, GROUP = 10, ROW_H = 18;
@@ -308,6 +323,103 @@ function drawCgr() {
   $('cgrNote').textContent = `every pixel is one ${analyzer.cgr_order()}-mer · `
     + `${(analyzer.cgr_sparsity()*100).toFixed(1)}% unseen · A ↙ C ↖ G ↗ T ↘`;
 }
+
+/* Dot plot. Columns are the open sequence, rows the one it is plotted
+   against. Each cell counts shared 12-mers; same-strand matches draw in sky,
+   reverse-complement matches in red, both on a log scale so a single clean
+   diagonal and a dense repeat block are both visible. */
+function drawDot() {
+  const sel = $('dotAgainst'), cur = sel.value;
+  sel.innerHTML = '<option value="">itself</option>' + comparisons.map((c, i) => `<option value="${i}">${c.label}</option>`).join('');
+  sel.value = comparisons[cur] ? cur : '';
+  const other = comparisons[sel.value], len = analyzer.seq_len();
+  if (len > 5e6) { $('dotNote').textContent = 'Too long to plot here: dot plots are for regions up to 5 Mb.'; $('dot').width = 0; return; }
+
+  const wrap = $('dotWrap'), px = Math.max(160, Math.min(wrap.clientWidth - 30, wrap.clientHeight - 40));
+  const c = $('dot'), dpr = Math.min(2, devicePixelRatio||1), M = 56, size = Math.min(720, Math.round(px - M));
+  // Length is in the key because this view can draw while a file is still
+  // streaming in, and that partial plot must not outlive the stream.
+  const key = `${sel.value}|${size}|${len}`;
+  if (dotCache?.key !== key) {
+    const t0 = performance.now();
+    dotCache = { key, size, grid: analyzer.dot_plot(other ? other.text : '', size), ms: performance.now() - t0,
+      blen: other ? (other.text.split('\n').slice(1).join('').replace(/\s/g, '').length) : len };
+  }
+  const { grid, blen } = dotCache;
+  // Thicken for display: each cell shows the strongest of its neighbours, so
+  // a one-cell diagonal reads as a line rather than a hairline.
+  const n2 = size * size;
+  if (!dotCache.shown) {
+    const shown = new Uint32Array(2 * n2);
+    for (let g = 0; g < 2; g++) for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      let m = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const yy = y + dy, xx = x + dx;
+        if (yy >= 0 && yy < size && xx >= 0 && xx < size) m = Math.max(m, grid[g * n2 + yy * size + xx]);
+      }
+      shown[g * n2 + y * size + x] = m;
+    }
+    dotCache.shown = shown;
+  }
+  const shownGrid = dotCache.shown;
+  $('dotNote').textContent = other
+    ? `${analyzer.seq_name()} across, ${other.label} down — a diagonal where they agree, a step where one lost or gained sequence.`
+    : 'The sequence against itself. Off the diagonal: repeats. Red lines running the other way: inverted repeats.';
+
+  c.style.width = c.style.height = (size + M) + 'px';
+  c.width = c.height = (size + M) * dpr;
+  const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
+  const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+  const [sky, red, muted, orange, line] = ['--C', '--T', '--muted', '--G', '--line'].map(n => css(n).split(' ').map(Number));
+  let max = 1; for (const v of shownGrid) if (v > max) max = v;
+  const img = ctx.createImageData(size * dpr, size * dpr), d = img.data, S = size * dpr;
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const cell = Math.floor(y / dpr) * size + Math.floor(x / dpr);
+    const f = shownGrid[cell] ? Math.log1p(shownGrid[cell]) / Math.log1p(max) : 0, rv = shownGrid[n2 + cell] ? Math.log1p(shownGrid[n2 + cell]) / Math.log1p(max) : 0;
+    const a = Math.max(f, rv), col = rv > f ? red : sky, o = (y * S + x) * 4;
+    const t = a ? .35 + .65 * a : 0;
+    d[o] = col[0] * t; d[o + 1] = col[1] * t; d[o + 2] = col[2] * t; d[o + 3] = 255;
+  }
+  ctx.putImageData(img, M * dpr, 0);
+
+  // Annotated regions as bands along the open sequence's axis, and along the
+  // other axis too when it is the same sequence.
+  const X = p => M + p / len * size, Y = p => p / blen * size;
+  ctx.fillStyle = `rgb(${orange.join(' ')} / .16)`;
+  for (const [a0, a1] of regions) {
+    ctx.fillRect(X(a0), 0, X(a1) - X(a0), size);
+    if (!other) ctx.fillRect(M, Y(a0), size, Y(a1) - Y(a0));
+  }
+  ctx.strokeStyle = `rgb(${line.join(' ')})`; ctx.strokeRect(M - .5, -.5, size + 1, size + 1);
+
+  // Axis ends in each sequence's own coordinates.
+  const off = analyzer.seq_offset();
+  ctx.font = `10px ${css('--mono')}`; ctx.fillStyle = `rgb(${muted.join(' ')})`; ctx.textBaseline = 'top';
+  ctx.fillText((off + 1).toLocaleString(), M, size + 6);
+  ctx.textAlign = 'right'; ctx.fillText((off + len).toLocaleString(), M + size, size + 6);
+  ctx.save(); ctx.translate(M - 6, 0); ctx.rotate(-Math.PI / 2); ctx.textAlign = 'right';
+  ctx.fillText(other ? '1' : (off + 1).toLocaleString(), 0, -10);
+  ctx.textAlign = 'left'; ctx.fillText(other ? blen.toLocaleString() : (off + len).toLocaleString(), -size, -10);
+  ctx.restore();
+  dotCache.geom = { M, size, len, blen, other };
+}
+
+$('dotAgainst').onchange = () => drawDot();
+$('dot').onmousemove = e => {
+  const g = dotCache?.geom; if (!g) return;
+  const b = e.currentTarget.getBoundingClientRect(), x = e.clientX - b.left - g.M, y = e.clientY - b.top;
+  if (x < 0 || y < 0 || x >= g.size || y >= g.size) return showTip(e, null);
+  const cx = Math.floor(x), cy = Math.floor(y), n = dotCache.grid;
+  const fwd = n[cy * g.size + cx], rev = n[g.size * g.size + cy * g.size + cx];
+  const off = analyzer.seq_offset(), px = Math.round(off + (cx + .5) / g.size * g.len);
+  const py = g.other ? Math.round((cy + .5) / g.size * g.blen) : Math.round(off + (cy + .5) / g.size * g.len);
+  const inReg = regions.some(([a, c]) => (cx + .5) / g.size * g.len >= a && (cx + .5) / g.size * g.len < c);
+  showTip(e, `<b>${fwd + rev ? `${fwd + rev} shared 12-mer${fwd + rev > 1 ? 's' : ''}` : 'No shared 12-mers'}</b>${rev ? ` · ${rev} reversed` : ''}<br>`
+    + `Across: ${analyzer.seq_name()}:${px.toLocaleString()}${inReg ? ' (in the annotated deletion)' : ''}<br>`
+    + `Down: ${g.other ? `${g.other.label} base ${py.toLocaleString()}` : `${analyzer.seq_name()}:${py.toLocaleString()}`}<br>`
+    + `<i>Each pixel is about ${span(Math.max(1, Math.round(g.len / g.size)))} of sequence.</i>`);
+};
+$('dot').onmouseleave = e => showTip(e, null);
 
 function drawHist() {
   const ok = analyzer.is_fastq() && analyzer.hist_total() > 0;
@@ -755,6 +867,7 @@ function paint() {
   else if (view === 'cgr') drawCgr();
   else if (view === 'skew') drawSkew();
   else if (view === 'hist') drawHist();
+  else if (view === 'dot') drawDot();
 }
 function redraw() {
   if (rafPending) return;
@@ -771,7 +884,7 @@ async function analyze(stream, total, label) {
   $('empty').classList.add('hide');
   $('dot').classList.remove('idle');
   sel = null; motif = ''; $('motif').value = '';
-  ann = null; regions = []; trackX = null;
+  ann = null; regions = []; trackX = null; comparisons = []; dotCache = null;
   $('locus').classList.add('hide'); $('calico').classList.add('hide');
   analyzer = new Analyzer(9, 10000);
   $('view').scrollTop = 0;
@@ -830,6 +943,7 @@ function addComparison(name, text) {
   const v = analyzer.identity_against(text, 50);
   let aligned = 0; for (const x of v) if (!isNaN(x)) aligned++;
   ann.add_identity(label, analyzer.seq_name(), analyzer.seq_offset(), v);
+  comparisons.push({ label, text });
   $('stStatus').textContent = `${label}: ${Math.round(aligned / v.length * 100)}% of bases aligned in ${Math.round(performance.now() - t0)} ms`;
   addAnnotation(null);
 }
@@ -971,7 +1085,7 @@ addEventListener('keydown', e => {
   const typing = /^(INPUT|TEXTAREA)$/.test(e.target.tagName);
   if ((e.metaKey || e.ctrlKey) && e.key === 'o') { e.preventDefault(); $('file').click(); return; }
   if (typing) { if (e.key === 'Escape') e.target.blur(); return; }
-  if (e.key >= '1' && e.key <= '4') setView(['seq','cgr','skew','hist'][+e.key - 1]);
+  if (e.key >= '1' && e.key <= '5') setView(['seq','cgr','skew','hist','dot'][+e.key - 1]);
   else if (e.key === '/') { e.preventDefault(); setView('seq'); $('motif').focus(); }
   else if (e.key === 'g') { e.preventDefault(); setView('seq'); $('seek').focus(); }
   else if (e.key === 'Escape') { sel = null; motif = ''; $('motif').value = ''; if (analyzer) paint(); }
