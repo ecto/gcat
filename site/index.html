@@ -109,9 +109,19 @@ canvas{display:block;max-width:100%;max-height:100%}
 /* An annotated region, e.g. a known deletion: struck through, since the
    bases are present in this reference but missing from the variant. */
 .del{background:rgb(var(--G)/.14);text-decoration:line-through rgb(var(--G)/.7)}
-#locus{width:100%;height:64px;display:block;flex:0 0 auto;cursor:pointer;
-  border-bottom:1px solid rgb(var(--line))}
-#locus.hide{display:none}
+#locus{flex:1;min-width:0;height:64px;display:block;cursor:pointer}
+.trackrow{display:flex;flex:0 0 auto;border-bottom:1px solid rgb(var(--line))}
+.trackrow:has(> .hide:first-child){border-bottom:0}
+.calico{flex:0 0 156px;display:flex;flex-direction:column;align-items:center;gap:.3rem;
+  padding:.45rem .6rem;border-left:1px solid rgb(var(--line))}
+#calicoCv{width:136px;height:96px;cursor:pointer}
+.calicobar .tb{font-size:.7rem;padding:.1rem .45rem}
+@media (max-width:640px){.calico{display:none}}
+/* Hover explanations for the canvases, which have no DOM to hang a title on. */
+.tip{position:fixed;z-index:20;pointer-events:none;max-width:280px;padding:.45rem .6rem;
+  background:rgb(var(--panel));border:1px solid rgb(var(--line));border-radius:6px;
+  font-size:.74rem;line-height:1.45;color:rgb(var(--txt));opacity:0;transition:opacity .08s}
+.tip.on{opacity:1}.tip b{color:rgb(var(--strong));font-weight:500}.tip i{font-style:normal;color:rgb(var(--muted))}
 #minimap{width:100%;height:30px;display:block;cursor:crosshair;
   border-top:1px solid rgb(var(--line));flex:0 0 auto}
 
@@ -145,21 +155,22 @@ canvas{display:block;max-width:100%;max-height:100%}
 </head>
 <body>
 <div class="app">
+<div class="tip" id="tip" role="tooltip"></div>
   <header class="titlebar">
     <span class="brand">g<em>cat</em></span>
     <div class="chip hide" id="chip"><b id="chipName"></b><span id="chipDesc"></span></div>
     <span class="grow"></span>
-    <button class="tb" id="openBtn">Open<kbd>&#8984;O</kbd></button>
-    <button class="tb" id="palBtn">ember</button>
-    <input type="file" id="file" class="hide" accept=".fa,.fasta,.fna,.fq,.fastq,.txt,.gff,.gff3,.bed" multiple>
+    <button class="tb" id="openBtn" title="Open a FASTA or FASTQ, plus any .gff3, .bed or .bedgraph annotation for it">Open<kbd>&#8984;O</kbd></button>
+    <button class="tb" id="palBtn" title="Cycle the colour ramp used by the k-mer map and quality plot">ember</button>
+    <input type="file" id="file" class="hide" accept=".fa,.fasta,.fna,.fq,.fastq,.txt,.gff,.gff3,.bed,.bedgraph,.bdg" multiple>
   </header>
 
   <div class="body">
     <nav class="rail" id="rail">
-      <button data-v="seq" aria-selected="true">Sequence<i>1</i></button>
-      <button data-v="cgr" aria-selected="false">k-mer map<i>2</i></button>
-      <button data-v="skew" aria-selected="false">GC skew<i>3</i></button>
-      <button data-v="hist" aria-selected="false">Quality<i>4</i></button>
+      <button data-v="seq" aria-selected="true" title="Every base, colour-coded, with GC and quality per row">Sequence<i>1</i></button>
+      <button data-v="cgr" aria-selected="false" title="Chaos game map: each pixel is a short word of DNA, brighter the more often it occurs">k-mer map<i>2</i></button>
+      <button data-v="skew" aria-selected="false" title="Running G-minus-C balance; its turning points mark where a bacterial chromosome starts and ends replication">GC skew<i>3</i></button>
+      <button data-v="hist" aria-selected="false" title="Read length against quality, for FASTQ files">Quality<i>4</i></button>
       <hr>
       <p class="railnote">Everything runs in this tab. Nothing is uploaded.</p>
     </nav>
@@ -177,7 +188,8 @@ canvas{display:block;max-width:100%;max-height:100%}
           <button class="tb" data-s="lambda.fa">lambda &middot; 49 kb</button>
           <button class="tb" data-s="sars2.fa">SARS-CoV-2 &middot; 30 kb</button>
           <button class="tb" data-s="ecoli.fa">E. coli &middot; 4.6 Mb</button>
-          <button class="tb" data-s="orange-cat.fa" data-ann="orange-cat.gff3 orange-cat.bed"
+          <button class="tb" data-s="orange-cat.fa" data-ann="orange-cat.gff3 orange-cat.bed orange-cat.bedgraph" data-calico
+            data-cmp="orange-cat-tiger.fa orange-cat-dog.fa orange-cat-human.fa orange-cat-mouse.fa"
             data-note="struck through: the deletion that makes cats orange">orange cat &middot; ARHGAP36</button>
           <button class="tb" data-s="sample.fq">reads &middot; FASTQ</button>
         </div>
@@ -192,18 +204,24 @@ canvas{display:block;max-width:100%;max-height:100%}
       <section class="pane on" id="pane-seq">
         <div class="panehead">
           <h2>Sequence</h2>
-          <span class="mono" style="font-size:.72rem">
+          <span class="mono" style="font-size:.72rem" title="Base colours: adenine, cytosine, guanine, thymine">
             <b class="b-A">A</b> <b class="b-C">C</b> <b class="b-G">G</b> <b class="b-T">T</b>
           </span>
           <span class="grow"></span>
-          <input class="field" id="seek" placeholder="go to base" spellcheck="false">
-          <input class="field" id="motif" placeholder="find motif" spellcheck="false">
-          <button class="tb" id="findNext">Next</button>
+          <input class="field" id="seek" title="Type a position and press Enter" placeholder="go to base" spellcheck="false">
+          <input class="field" id="motif" title="Highlight every match; N matches any base" placeholder="find motif" spellcheck="false">
+          <button class="tb" id="findNext" title="Jump to the next match">Next</button>
         </div>
-        <canvas id="locus" class="hide"></canvas>
+        <div class="trackrow">
+          <canvas id="locus" class="hide"></canvas>
+          <div class="calico hide" id="calico">
+            <canvas id="calicoCv"></canvas>
+            <div class="calicobar"><button class="tb" id="calicoSex" title="Switch between a female (two X chromosomes) and a male (one)">X<sup>O</sup>X female</button></div>
+          </div>
+        </div>
         <div class="ruler" id="ruler"></div>
         <div class="view" id="view"><div class="spacer" id="spacer"></div></div>
-        <canvas id="minimap"></canvas>
+        <canvas id="minimap" title="GC content along the whole sequence; tall bars are far from 50%. The box is what the editor shows. Click to jump."></canvas>
       </section>
 
       <section class="pane" id="pane-cgr">
@@ -212,7 +230,7 @@ canvas{display:block;max-width:100%;max-height:100%}
           <p id="cgrNote"></p>
           <span class="grow"></span>
           <label style="font-size:.72rem;color:rgb(var(--muted))">contrast</label>
-          <input type="range" id="gamma" min="15" max="100" value="40" style="width:110px;accent-color:rgb(var(--accent))">
+          <input type="range" id="gamma" title="Brighten rare words so structure in the map shows up" min="15" max="100" value="40" style="width:110px;accent-color:rgb(var(--accent))">
         </div>
         <div class="canvaswrap"><canvas id="cgr"></canvas></div>
       </section>
@@ -250,8 +268,8 @@ let wasm, analyzer, palette = +(localStorage.gcatPalette ?? 0), view = localStor
 let rafPending = false, sel = null, dragFrom = null, motif = '';
 // Annotation attached to the open sequence, and its regions as [lo, hi)
 // editor offsets for the row renderer, which checks them per base.
-let ann = null, regions = [], trackX = null;
-const ANN_EXT = /\.(gff3?|bed)$/i;
+let ann = null, regions = [], trackX = null, locusHits = [];
+const ANN_EXT = /\.(gff3?|bed|bedgraph|bdg)$/i;
 const PALETTES = ['ember', 'ice', 'mono'];
 const COLS = 60, GROUP = 10, ROW_H = 18;
 
@@ -393,19 +411,19 @@ function buildRow(rowIdx, offWidth) {
     }
   }
 
-  let html = '';
+  let html = '', struck = false;
   for (let i = 0; i < visible; i++) {
     const abs = start + i;
     let cls = BASE_CLASS[bases[i]];
     if (sel && abs >= sel.lo && abs < sel.hi) cls += ' sel';
     else if (marked && marked[i]) cls += ' hit';
-    if (regions.length && regions.some(([a, b]) => abs >= a && abs < b)) cls += ' del';
+    if (regions.length && regions.some(([a, b]) => abs >= a && abs < b)) { cls += ' del'; struck = true; }
     html += `<b class="${cls}">${String.fromCharCode(bases[i])}</b>`;
     if ((i + 1) % GROUP === 0 && i + 1 < visible) html += ' ';
   }
 
   const gc = analyzer.gc_of(start, visible);
-  let gutter = `<span class="gcbar"><i style="width:${gc < 0 ? 0 : (gc*100).toFixed(0)}%"></i></span>`;
+  let gutter = `<span class="gcbar" title="GC content of this row: ${gc < 0 ? 'n/a' : (gc*100).toFixed(0) + '%'}"><i style="width:${gc < 0 ? 0 : (gc*100).toFixed(0)}%"></i></span>`;
   if (analyzer.has_quality()) {
     const qn = analyzer.read_quality(start, visible);
     if (qn > 0) {
@@ -415,12 +433,12 @@ function buildRow(rowIdx, offWidth) {
         const t = Math.max(0, Math.min(1, (q[i] - 33) / 40));
         strip += `<i style="background:hsl(${Math.round(16+t*32)} 60% ${Math.round(26+t*60)}%)"></i>`;
       }
-      gutter += `<span class="qstrip">${strip}</span>`;
+      gutter += `<span class="qstrip" title="Phred quality per base: bright is confident, dark is likely miscalled">${strip}</span>`;
     }
   }
   return `<div class="row" style="top:${(rowIdx*ROW_H).toFixed(0)}px">`
     + `<span class="off">${String(start).padStart(offWidth,' ')}</span>`
-    + `<span class="seqcol">${html}</span>${gutter}</div>`;
+    + `<span class="seqcol"${struck ? ' title="Struck through: present in the reference, missing from the annotated deletion allele"' : ''}>${html}</span>${gutter}</div>`;
 }
 
 function renderRows() {
@@ -459,8 +477,14 @@ function drawLocus() {
   const regs = [];
   for (let i = 0; i < rg.length; i += 3) regs.push({ start: rg[i], end: rg[i + 1], name: rnames[i / 3] || 'region' });
   const lanes = regs.length ? Math.min(3, regs.length) + 1 : 0;
+  const sigNames = ann.signal_names_in(id, off, off + len), percent = ann.signal_percent_in(id, off, off + len);
+  // Depth lanes get room for their shape; identity lanes stack tighter.
+  const laneH = percent.map(p => p ? 26 : 40), laneTop = [];
+  for (let i = 0, t = 0; i < laneH.length; t += laneH[i++]) laneTop.push(t);
+  // Signals sit below a zoom inset: they span the loaded window, not the gene.
+  const INSET = 18, sigTop = (lanes ? 70 + lanes * 18 : 64) + (sigNames.length ? INSET : 0);
 
-  const H = (lanes ? 70 + lanes * 18 : 64), w = Math.max(200, c.clientWidth), dpr = Math.min(2, devicePixelRatio||1);
+  const H = sigTop + laneH.reduce((a, b) => a + b, 0), w = Math.max(200, c.clientWidth), dpr = Math.min(2, devicePixelRatio||1);
   c.style.height = H + 'px'; c.width = w * dpr; c.height = H * dpr;
   const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
   const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
@@ -471,12 +495,15 @@ function drawLocus() {
   const pad = (b - a) * 0.02, lo = a - pad, hi = b + pad, L = 108, R = w - 18;
   const X = pos => L + (pos - lo) / (hi - lo) * (R - L);
   trackX = { L, R, lo, hi };
+  const hits = locusHits = [];
+  const hit = (x0, y0, x1, y1, html) => hits.push({ x0, y0, x1, y1, html });
 
   ctx.font = `11px ${css('--mono')}`; ctx.textBaseline = 'middle';
   // One gene is named in the gutter, where it cannot collide with a region's
   // label; several are named above themselves where there is room.
   if (genes.length === 1) { ctx.fillStyle = `rgb(${txt})`; ctx.fillText(genes[0].name.slice(0, 13), 14, 46); }
   ctx.fillStyle = `rgb(${muted})`; ctx.fillText(id.slice(0, 13), 14, genes.length === 1 ? 60 : 46);
+  hit(0, 34, L - 4, 66, `<b>${id}</b><br>The sequence these coordinates are on${off ? `; this file starts at base ${(off + 1).toLocaleString()}` : ''}.`);
 
   // Scale bar: the 1-2-5 step nearest a sixth of the domain.
   const target = (hi - lo) / 6, mag = 10 ** Math.floor(Math.log10(target));
@@ -484,6 +511,7 @@ function drawLocus() {
   const sw = X(lo + step) - X(lo);
   ctx.fillStyle = `rgb(${dim})`; ctx.fillRect(R - sw, 12, sw, 1);
   ctx.textAlign = 'right'; ctx.fillText(span(step), R - sw - 6, 12); ctx.textAlign = 'left';
+  hit(R - sw - 50, 4, R, 20, `<b>Scale</b><br>This bar is ${span(step)} of DNA.`);
 
   // Loaded window, when it is not the whole domain, and the editor's viewport.
   const v = $('view');
@@ -491,6 +519,7 @@ function drawLocus() {
     ctx.strokeStyle = `rgb(${muted} / .5)`; ctx.setLineDash([2, 3]);
     ctx.strokeRect(X(off) + .5, 28.5, X(off + len) - X(off), 34); ctx.setLineDash([]);
   }
+  hit(X(off), 28, X(off + len), 63, `<b>Loaded sequence</b> · ${span(len)}<br>The dashed box is the stretch in this file; the gold band is what the editor is showing. Click anywhere inside to jump.`);
   const vf = off + (v.scrollTop / ROW_H) * COLS, vt = Math.min(off + len, vf + (v.clientHeight / ROW_H) * COLS);
   ctx.fillStyle = `rgb(${accent} / .22)`; ctx.fillRect(X(vf), 28, Math.max(1.5, X(vt) - X(vf)), 35);
 
@@ -511,6 +540,15 @@ function drawLocus() {
       if (cb > ca) ctx.fillRect(X(ca), y - 7, Math.max(1.5, X(cb) - X(ca)), 15);
     }
     if (genes.length > 1 && ctx.measureText(ge.name).width < x1 - x0) ctx.fillText(ge.name, Math.max(x0, L), 12);
+    const dir = ge.strand > 0 ? 'left to right' : ge.strand < 0 ? 'right to left' : 'on an unknown strand';
+    hit(x0, y - 9, x1, y + 9, `<b>${ge.name}</b> · ${span(ge.end - ge.start)}<br>Line: intron, read ${dir}. Boxes: exons from every transcript, merged; tall where they code for protein.`);
+    for (const [ea, eb] of ge.exons) {
+      const cod = ge.cds ? Math.max(0, Math.min(eb, ge.cds[1]) - Math.max(ea, ge.cds[0])) : 0;
+      const what = !cod ? 'Untranslated: in the RNA but not the protein (short box).'
+        : cod < eb - ea ? `${span(cod)} of it codes for protein (tall part); the rest is untranslated.`
+        : 'Codes for protein (tall box).';
+      hit(X(ea) - 2, y - 9, X(eb) + 2, y + 9, `<b>Exon</b> of ${ge.name} · ${span(eb - ea)}<br>${what}<br><i>${id}:${(ea + 1).toLocaleString()}–${eb.toLocaleString()}</i>`);
+    }
   }
 
   ctx.strokeStyle = `rgb(${orange})`;
@@ -519,6 +557,7 @@ function drawLocus() {
     ctx.fillStyle = `rgb(${orange} / .18)`; ctx.fillRect(x0, y - 10, x1 - x0, 20);
     ctx.beginPath(); ctx.moveTo(x0 + .5, 24); ctx.lineTo(x0 + .5, 20); ctx.lineTo(x1 - .5, 20); ctx.lineTo(x1 - .5, 24); ctx.stroke();
     ctx.fillStyle = `rgb(${orange})`; ctx.fillText(`${rr.name} · ${span(rr.end - rr.start)}`, x0, 11);
+    hit(x0, 4, x1, y + 10, `<b>${rr.name}</b> · ${(rr.end - rr.start).toLocaleString()} bp missing from this allele<br>Struck through in the sequence below. Click to jump there.<br><i>${id}:${(rr.start + 1).toLocaleString()}–${rr.end.toLocaleString()}</i>`);
   }
 
   // Reference allele, then each region's allele with that stretch spliced out.
@@ -533,10 +572,126 @@ function drawLocus() {
     ctx.beginPath(); ctx.moveTo(d0, yy + .5); ctx.quadraticCurveTo((d0 + d1) / 2, yy + 9, d1, yy + .5); ctx.stroke(); ctx.setLineDash([]);
   };
   if (lanes) {
+    hit(0, 72, w, 88, '<b>Reference allele</b><br>The sequence as the reference genome has it, with nothing removed.');
+    regs.slice(0, 3).forEach((rr, i) => hit(0, 90 + i * 18, w, 106 + i * 18, `<b>${rr.name} allele</b><br>The same chromosome with ${span(rr.end - rr.start)} spliced out; the dashed arc joins the two ends that meet.`));
     lane(80, 'reference', null, `rgb(${muted})`);
     regs.slice(0, 3).forEach((rr, i) => lane(98 + i * 18, rr.name, rr, `rgb(${orange})`));
   }
+
+  // Signal tracks (read depth) as filled profiles, one pixel per bin, scaled
+  // to their own maximum and labelled with it.
+  if (!sigNames.length) return;
+  const Xw = pos => L + (pos - off) / len * (R - L);
+  const insetTop = sigTop - INSET + 2;
+  ctx.strokeStyle = `rgb(${muted} / .5)`; ctx.setLineDash([2, 3]);
+  ctx.beginPath();
+  ctx.moveTo(X(off) + .5, insetTop); ctx.lineTo(L + .5, sigTop);
+  ctx.moveTo(X(off + len) - .5, insetTop); ctx.lineTo(R - .5, sigTop);
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = `rgb(${orange} / .14)`;
+  for (const rr of regs) ctx.fillRect(Xw(rr.start), sigTop, Xw(rr.end) - Xw(rr.start), H - sigTop);
+  hit(0, insetTop, w, sigTop, '<b>Zoomed in</b><br>Lanes below span only the loaded sequence, stretched to full width.');
+
+  sigNames.forEach((name, i) => {
+    const top = sigTop + laneTop[i] + 5, h = laneH[i] - 10, n = Math.max(1, Math.round(R - L));
+    const v = ann.signal_in(i, id, off, off + len, n), pct = percent[i];
+    hits.push({ x0: L, y0: top - 4, x1: R, y1: top + h + 4, html: x => {
+      const k = Math.max(0, Math.min(n - 1, Math.floor(x - L))), pos = Math.round(off + (k + .5) / n * len);
+      const where = `<br><i>${id}:${pos.toLocaleString()}</i>`;
+      if (pct) return isNaN(v[k])
+        ? `<b>${name}</b> · no match here<br>The aligner found no stretch of this species' sequence that lines up with these bases. They may be new in the cat lineage, or too changed to recognise.${where}`
+        : `<b>${name}</b> · ${Math.round(v[k])}% identical here<br>Of the 50 bases around this point, the share this species has unchanged. Sequence that stays the same across species for millions of years usually does something.<br>Bar height runs from 50% (what unrelated DNA shares by chance) to 100%.${where}`;
+      return `<b>${name}</b> · ${isNaN(v[k]) ? 'no data' : Math.round(v[k]) + '×'} here<br>How many sequencing reads cover each base. Zero means the reads have no copy of this stretch: it is deleted.${where}`;
+    } });
+    // Identity is drawn from 50%, about what two unrelated stretches share by
+    // chance once aligned, so the lane's height is the signal above that.
+    let max = 0, floor = pct ? 50 : 0; for (const x of v) if (x > max) max = x;
+    if (pct) max = 100;
+    ctx.fillStyle = `rgb(${muted})`; ctx.fillText(name.slice(0, 13), 14, top + h / 2);
+    if (!pct) { ctx.textAlign = 'right'; ctx.fillStyle = `rgb(${dim})`; ctx.fillText(`${Math.round(max)}×`, L - 6, top + 4); ctx.textAlign = 'left'; }
+    ctx.fillStyle = `rgb(${dim})`; ctx.fillRect(L, top + h, R - L, 1);
+    if (!max) return;
+    ctx.fillStyle = pct ? `rgb(${css('--C')} / .7)` : `rgb(${txt} / .55)`;
+    for (let k = 0; k < n; k++) {
+      if (!(v[k] > floor)) continue;
+      const bh = (v[k] - floor) / (max - floor) * h;
+      ctx.fillRect(L + k, top + h - bh, 1, bh);
+    }
+  });
 }
+
+/* X-inactivation, for samples about an X-linked coat colour. Each patch of
+   skin descends from one early cell that silenced one X at random, so a
+   female carrying the orange allele on one X grows orange and black patches;
+   a male has one X and is orange all over. */
+let calicoShare = 0, calicoFemale = true, calicoSeed = 20250515, calicoAt = () => null;
+function drawCalico() {
+  const c = $('calicoCv');
+  if ($('calico').classList.contains('hide')) return;
+  const w = 136, h = 96, dpr = Math.min(2, devicePixelRatio||1);
+  c.width = w * dpr; c.height = h * dpr;
+  const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
+  const orange = getComputedStyle(document.body).getPropertyValue('--G').trim();
+  let s = calicoSeed % 2147483647 || 1;
+  for (let i = 0; i < 4; i++) s = (s * 16807) % 2147483647;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const clones = Array.from({ length: 22 }, () => [rnd() * w, rnd() * h, rnd() < .5]);
+  calicoAt = (x, y) => {
+    const dx = (x - w / 2) / (w / 2), dy = (y - h / 2) / (h / 2);
+    if (dx * dx + dy * dy > 1) return null;
+    if (!calicoFemale) return true;
+    let best = Infinity, o = true;
+    for (const [cx, cy, v] of clones) { const d = (cx - x) ** 2 + (cy - y) ** 2; if (d < best) { best = d; o = v; } }
+    return o;
+  };
+  const cell = 4;
+  let on = 0, all = 0;
+  for (let y = 0; y < h; y += cell) for (let x = 0; x < w; x += cell) {
+    const dx = (x + 2 - w / 2) / (w / 2), dy = (y + 2 - h / 2) / (h / 2);
+    if (dx * dx + dy * dy > 1) continue;
+    let best = Infinity, orangeX = true;
+    for (const [cx, cy, o] of clones) {
+      const d = (cx - x) ** 2 + (cy - y) ** 2;
+      if (d < best) { best = d; orangeX = o; }
+    }
+    if (!calicoFemale) orangeX = true;
+    all++; if (orangeX) on++;
+    ctx.fillStyle = orangeX ? `rgb(${orange})` : '#2a2a2a';
+    ctx.fillRect(x, y, cell - .5, cell - .5);
+  }
+  calicoShare = on / all;
+}
+function showTip(e, html) {
+  const t = $('tip');
+  if (!html) { t.classList.remove('on'); return; }
+  t.innerHTML = html; t.classList.add('on');
+  const r = t.getBoundingClientRect();
+  t.style.left = Math.min(innerWidth - r.width - 8, e.clientX + 14) + 'px';
+  t.style.top = (e.clientY + 16 + r.height > innerHeight ? e.clientY - r.height - 10 : e.clientY + 16) + 'px';
+}
+$('locus').onmousemove = e => {
+  const b = e.currentTarget.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
+  const h = locusHits.findLast(h => x >= h.x0 && x <= h.x1 && y >= h.y0 && y <= h.y1);
+  showTip(e, h && (typeof h.html === 'function' ? h.html(x) : h.html));
+};
+$('calicoCv').onmousemove = e => {
+  const b = e.currentTarget.getBoundingClientRect();
+  const o = calicoAt(e.clientX - b.left, e.clientY - b.top);
+  const intro = calicoFemale
+    ? `A female has two X chromosomes and each early skin cell silences one at random; its descendants form a patch. ${Math.round(calicoShare * 100)}% of this coat kept the orange X. Click to reshuffle.`
+    : 'A male has one X. If it carries the orange allele, every patch is orange.';
+  showTip(e, o === null ? `<b>X-inactivation</b><br>${intro}`
+    : o ? `<b>Orange patch</b><br>The active X carries the deletion, so ARHGAP36 switches on in pigment cells and they make orange pheomelanin.<br><i>${intro}</i>`
+        : `<b>Black patch</b><br>The active X is the reference allele; ARHGAP36 stays off in pigment cells and they make black eumelanin.<br><i>${intro}</i>`);
+};
+for (const id of ['locus', 'calicoCv']) $(id).onmouseleave = e => showTip(e, null);
+
+$('calicoCv').onclick = () => { calicoSeed = (calicoSeed * 48271) % 2147483647 || 1; drawCalico(); };
+$('calicoSex').onclick = () => {
+  calicoFemale = !calicoFemale;
+  $('calicoSex').innerHTML = calicoFemale ? 'X<sup>O</sup>X female' : 'X<sup>O</sup>Y male';
+  drawCalico();
+};
 
 function drawMinimap() {
   const c = $('minimap'), w = Math.max(200, c.clientWidth), dpr = Math.min(2, devicePixelRatio||1);
@@ -615,7 +770,7 @@ async function analyze(stream, total, label) {
   $('dot').classList.remove('idle');
   sel = null; motif = ''; $('motif').value = '';
   ann = null; regions = []; trackX = null;
-  $('locus').classList.add('hide');
+  $('locus').classList.add('hide'); $('calico').classList.add('hide');
   analyzer = new Analyzer(9, 10000);
   $('view').scrollTop = 0;
   setView(view);
@@ -650,17 +805,43 @@ async function analyze(stream, total, label) {
 
 // A sequence and its annotation can arrive together; the sequence goes first so
 // the annotation has coordinates to land on.
+// Any further FASTA is another species to compare against it.
 async function openFiles(files) {
   files = [...files];
-  const seq = files.find(f => !ANN_EXT.test(f.name));
-  if (seq) await analyze(seq.stream(), seq.size, seq.name);
+  const seqs = files.filter(f => !ANN_EXT.test(f.name));
+  if (seqs[0]) await analyze(seqs[0].stream(), seqs[0].size, seqs[0].name);
   for (const f of files) if (ANN_EXT.test(f.name)) addAnnotation(f.name, await f.text());
+  for (const f of seqs.slice(1)) addComparison(f.name, await f.text());
 }
 
+// "Panthera tigris" from an NCBI header becomes "P. tigris"; anything else
+// falls back to the file name.
+function speciesLabel(text, name) {
+  const w = text.slice(1, text.indexOf('\n')).split(/\s+/).slice(1);
+  return /^[A-Z][a-z]+$/.test(w[0] || '') && /^[a-z]+$/.test(w[1] || '') ? `${w[0][0]}. ${w[1]}` : name.replace(/\.[^.]+$/, '');
+}
+
+function addComparison(name, text) {
+  if (!analyzer) { $('stStatus').textContent = `open a sequence before ${name}`; return; }
+  ann ??= new Annotations();
+  const t0 = performance.now(), label = speciesLabel(text, name);
+  const v = analyzer.identity_against(text, 50);
+  let aligned = 0; for (const x of v) if (!isNaN(x)) aligned++;
+  ann.add_identity(label, analyzer.seq_name(), analyzer.seq_offset(), v);
+  $('stStatus').textContent = `${label}: ${Math.round(aligned / v.length * 100)}% of bases aligned in ${Math.round(performance.now() - t0)} ms`;
+  addAnnotation(null);
+}
+
+// Adds one annotation file, then refreshes what the track and editor show.
+// With no name it only refreshes, after a comparison was added.
 function addAnnotation(name, text) {
   if (!analyzer) { $('stStatus').textContent = `open a sequence before ${name}`; return; }
   ann ??= new Annotations();
-  try { /\.bed$/i.test(name) ? ann.add_bed(text) : ann.add_gff3(text); }
+  if (name) try {
+    if (/\.(bedgraph|bdg)$/i.test(name)) ann.add_bedgraph(text, name);
+    else if (/\.bed$/i.test(name)) ann.add_bed(text);
+    else ann.add_gff3(text);
+  }
   catch (e) { $('stStatus').textContent = `${name}: ${e.message ?? e}`; return; }
 
   const id = analyzer.seq_name(), off = analyzer.seq_offset(), end = off + analyzer.seq_len();
@@ -668,11 +849,12 @@ function addAnnotation(name, text) {
   regions = [];
   for (let i = 0; i < r.length; i += 3) regions.push([r[i] - off, r[i + 1] - off]);
   const genes = ann.gene_names_in(id, off, end), names = ann.region_names_in(id, off, end);
-  const found = genes.length + regions.length;
+  const signals = ann.signal_names_in(id, off, end);
+  const found = genes.length + regions.length + signals.length;
   $('locus').classList.toggle('hide', !found);
   $('chipDesc').textContent = found
-    ? '· ' + [...genes, ...names.map((n, i) => `${n || 'region'} ${span(regions[i][1] - regions[i][0])}`)].join(' · ')
-    : `· nothing in ${name} falls on ${id}`;
+    ? '· ' + [...genes, ...names.map((n, i) => `${n || 'region'} ${span(regions[i][1] - regions[i][0])}`), ...signals].join(' · ')
+    : `· nothing in ${name ?? 'the annotation'} falls on ${id}`;
   redraw();
 }
 
@@ -697,7 +879,13 @@ document.querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
       if (!a.ok) throw new Error(a.status);
       addAnnotation(name, await a.text());
     }
+    for (const name of (b.dataset.cmp || '').split(' ').filter(Boolean)) {
+      const a = await fetch('data/' + name);
+      if (!a.ok) throw new Error(a.status);
+      addComparison(name, await a.text());
+    }
     if (b.dataset.note) $('chipDesc').textContent = '· ' + b.dataset.note;
+    if ('calico' in b.dataset) { $('calico').classList.remove('hide'); drawCalico(); }
     if (regions.length) scrollToBase(regions[0][0]);
   } catch {
     $('stStatus').textContent = `could not load ${b.dataset.s} — run scripts/fetch-data.sh`;

@@ -10,7 +10,7 @@
 //! tab's memory and to show results while it is still reading.
 
 use gcat::Base;
-use gcat_io::annot::{self, header_locus, Feature, Gene, Strand};
+use gcat_io::annot::{self, header_locus, Feature, Gene, Signal, Strand};
 use gcat_viz::{colorize, Cgr, GcSkew, Hist2d, Palette};
 use wasm_bindgen::prelude::*;
 
@@ -444,6 +444,23 @@ impl Analyzer {
         header_locus(&self.first_header).0.to_string()
     }
 
+    /// Align the first record of a second FASTA onto the retained sequence
+    /// and return percent identity per base, averaged over `window` bases;
+    /// NaN where it has no matching sequence. Both strands are tried.
+    pub fn identity_against(&self, fasta: &str, window: usize) -> Vec<f32> {
+        let mut reader = gcat_io::Reader::new(fasta.as_bytes());
+        let query = match reader.next_record() {
+            Ok(Some(rec)) => rec.seq.to_vec(),
+            // Not FASTA: treat the text as bare sequence.
+            _ => fasta.bytes().filter(u8::is_ascii_alphabetic).collect(),
+        };
+        gcat_align::align(&self.seq, &query)
+            .identity(window)
+            .into_iter()
+            .map(|v| v.unwrap_or(f32::NAN))
+            .collect()
+    }
+
     /// Where base 0 of the editor sits in that sequence's coordinates. Non-zero
     /// when the header names a subrange, as NCBI and faidx extracts do.
     pub fn seq_offset(&self) -> f64 {
@@ -663,6 +680,7 @@ fn pow2(n: i32) -> f64 {
 pub struct Annotations {
     genes: Vec<Gene>,
     regions: Vec<Feature>,
+    signals: Vec<Signal>,
 }
 
 fn strand_code(s: Strand) -> f64 {
@@ -697,8 +715,52 @@ impl Annotations {
         Ok(n)
     }
 
+    /// Add a bedGraph track, named by its `track` line or else `fallback`.
+    /// Returns how many intervals it held.
+    pub fn add_bedgraph(&mut self, text: &str, fallback: &str) -> Result<usize, JsError> {
+        let mut sig = annot::read_bedgraph(text.as_bytes())?;
+        sig.name.get_or_insert_with(|| fallback.to_string());
+        let n = sig.spans.len();
+        self.signals.push(sig);
+        Ok(n)
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.genes.is_empty() && self.regions.is_empty()
+        self.genes.is_empty() && self.regions.is_empty() && self.signals.is_empty()
+    }
+
+    /// Add a percent-identity track computed by [`Analyzer::identity_against`],
+    /// for the sequence `seqid` starting at `offset`.
+    pub fn add_identity(&mut self, name: &str, seqid: &str, offset: f64, values: &[f32]) {
+        self.signals.push(Signal::from_percent(name, seqid, offset as u64, values));
+    }
+
+    /// For each track [`Annotations::signal_names_in`] lists, whether its
+    /// values are percentages (1) or counts (0).
+    pub fn signal_percent_in(&self, seqid: &str, start: f64, end: f64) -> Vec<u8> {
+        self.signals_over(seqid, start, end).map(|s| s.percent as u8).collect()
+    }
+
+    /// Names of the signal tracks that have data on `seqid` within
+    /// `[start, end)`; their indices into this list are what
+    /// [`Annotations::signal_in`] takes.
+    pub fn signal_names_in(&self, seqid: &str, start: f64, end: f64) -> Vec<String> {
+        self.signals_over(seqid, start, end).map(|s| s.name.clone().unwrap_or_default()).collect()
+    }
+
+    /// The `i`th signal track over `[start, end)`, binned to `bins` maxima.
+    pub fn signal_in(&self, i: usize, seqid: &str, start: f64, end: f64, bins: usize) -> Vec<f32> {
+        self.signals_over(seqid, start, end)
+            .nth(i)
+            .map_or_else(Vec::new, |s| s.binned(seqid, start, end, bins))
+    }
+
+    fn signals_over<'a>(&'a self, seqid: &'a str, start: f64, end: f64) -> impl Iterator<Item = &'a Signal> {
+        self.signals.iter().filter(move |s| {
+            s.spans
+                .iter()
+                .any(|(id, a, b, _)| id == seqid && (*b as f64) > start && (*a as f64) < end)
+        })
     }
 
     fn genes_over<'a>(&'a self, seqid: &'a str, start: f64, end: f64) -> impl Iterator<Item = &'a Gene> {

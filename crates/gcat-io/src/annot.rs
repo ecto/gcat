@@ -275,3 +275,92 @@ pub fn header_locus(id: &str) -> (&str, u64) {
     });
     parsed.unwrap_or((name, 0))
 }
+
+/// A bedGraph track: a value over each interval, such as read depth.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Signal {
+    /// From the `track name="…"` line, if the file had one.
+    pub name: Option<String>,
+    /// Values are percentages on a fixed 0–100 scale (identity to another
+    /// species) rather than counts scaled to their own maximum (read depth).
+    pub percent: bool,
+    /// `(seqid, start, end, value)`, in file order.
+    pub spans: Vec<(String, u64, u64, f32)>,
+}
+
+impl Signal {
+    /// The largest value in each of `bins` equal slices of `[start, end)` on
+    /// `seqid`, NaN where nothing is recorded — which is not the same as a
+    /// recorded zero. Max rather than mean so a peak is
+    /// never averaged away; a bin reads zero only when nothing in it is
+    /// covered, which is exactly what a deletion looks like.
+    pub fn binned(&self, seqid: &str, start: f64, end: f64, bins: usize) -> Vec<f32> {
+        let mut out = vec![f32::NAN; bins];
+        let width = (end - start) / bins.max(1) as f64;
+        if width <= 0.0 {
+            return out;
+        }
+        for (id, a, b, v) in &self.spans {
+            if id != seqid || (*b as f64) <= start || (*a as f64) >= end {
+                continue;
+            }
+            let lo = (((*a as f64).max(start) - start) / width).floor() as usize;
+            let hi = ((((*b as f64).min(end) - start) / width).ceil() as usize).min(bins);
+            for slot in &mut out[lo.min(bins)..hi] {
+                // f32::max ignores a NaN operand, so the first value wins.
+                *slot = slot.max(*v);
+            }
+        }
+        out
+    }
+}
+
+impl Signal {
+    /// A percentage track from one value per base starting at `offset`,
+    /// skipping NaN (no data). Values are rounded to whole percent so runs of
+    /// similar identity collapse into one span.
+    pub fn from_percent(name: &str, seqid: &str, offset: u64, values: &[f32]) -> Signal {
+        let mut spans: Vec<(String, u64, u64, f32)> = Vec::new();
+        for (i, v) in values.iter().enumerate() {
+            if v.is_nan() {
+                continue;
+            }
+            let (pos, v) = (offset + i as u64, v.round());
+            match spans.last_mut() {
+                Some(last) if last.2 == pos && last.3 == v => last.2 += 1,
+                _ => spans.push((seqid.to_string(), pos, pos + 1, v)),
+            }
+        }
+        Signal { name: Some(name.to_string()), percent: true, spans }
+    }
+}
+
+/// Read bedGraph: `chrom start end value`, 0-based half-open like BED.
+pub fn read_bedgraph<R: BufRead>(r: R) -> Result<Signal, AnnotError> {
+    let mut sig = Signal::default();
+    for (i, line) in r.lines().enumerate() {
+        let line = line?;
+        let t = line.trim();
+        if let Some(rest) = t.strip_prefix("track") {
+            sig.name = rest
+                .split_once("name=")
+                .map(|(_, n)| n.trim_start_matches('"').split('"').next().unwrap_or("").to_string());
+            continue;
+        }
+        if t.is_empty() || t.starts_with('#') || t.starts_with("browser") {
+            continue;
+        }
+        let cols: Vec<&str> = t.split_whitespace().collect();
+        let bad = || AnnotError::BadLine { line: i + 1 };
+        if cols.len() < 4 {
+            return Err(bad());
+        }
+        sig.spans.push((
+            cols[0].to_string(),
+            cols[1].parse().map_err(|_| bad())?,
+            cols[2].parse().map_err(|_| bad())?,
+            cols[3].parse().map_err(|_| bad())?,
+        ));
+    }
+    Ok(sig)
+}

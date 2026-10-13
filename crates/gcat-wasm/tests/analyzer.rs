@@ -226,3 +226,38 @@ fn annotations_query_by_window() {
     assert_eq!(ann.regions_in("chrX", 0.0, 1000.0), vec![250.0, 300.0, 0.0]);
     assert_eq!(ann.region_names_in("chrX", 0.0, 1000.0), vec!["del".to_string()]);
 }
+
+#[test]
+fn signals_are_named_and_binned() {
+    let mut ann = Annotations::new();
+    assert_eq!(ann.add_bedgraph("chrX 0 50 10\nchrX 50 100 0\n", "depth.bedgraph").unwrap(), 2);
+    assert_eq!(ann.signal_names_in("chrX", 0.0, 100.0), vec!["depth.bedgraph".to_string()]);
+    assert_eq!(ann.signal_in(0, "chrX", 0.0, 100.0, 4), vec![10.0, 10.0, 0.0, 0.0]);
+    assert_eq!(ann.signal_percent_in("chrX", 0.0, 100.0), vec![0]);
+    assert!(ann.signal_names_in("chr1", 0.0, 100.0).is_empty());
+}
+
+#[test]
+fn identity_against_a_second_species() {
+    let mut s = 11u64;
+    let seq: Vec<u8> = (0..3000)
+        .map(|_| {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            b"ACGT"[(s >> 33) as usize % 4]
+        })
+        .collect();
+    let mut a = Analyzer::new(4, 100);
+    a.push(b">chrX:1001-4000\n");
+    a.push(&seq);
+    a.push(b"\n");
+    a.finish();
+    let other = [b">other\n".as_slice(), &seq[..1000], &seq[1400..], b"\n"].concat();
+    let id = a.identity_against(std::str::from_utf8(&other).unwrap(), 50);
+    assert_eq!(id.len(), 3000);
+    assert_eq!(id[500], 100.0);
+    assert!(id[1200] < 1.0, "the deleted stretch is not conserved");
+
+    let mut ann = Annotations::new();
+    ann.add_identity("other", "chrX", a.seq_offset(), &id);
+    assert_eq!(ann.signal_percent_in("chrX", 1000.0, 4000.0), vec![1]);
+}

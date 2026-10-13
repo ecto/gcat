@@ -1,0 +1,8 @@
+[package]
+name = "gcat-align"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pairwise alignment for comparing a region across species"
+
+[dependencies]

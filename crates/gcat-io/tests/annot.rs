@@ -1,4 +1,4 @@
-use gcat_io::annot::{genes, header_locus, read_bed, read_gff3, Strand};
+use gcat_io::annot::{genes, header_locus, read_bed, read_bedgraph, read_gff3, Strand};
 use std::io::Cursor;
 
 /// Two transcripts of one gene sharing their last exon, with CDS on each.
@@ -72,4 +72,25 @@ fn header_locus_reads_ncbi_ranges() {
     assert_eq!(header_locus("NC_001422.1 phiX174"), ("NC_001422.1", 0));
     // A colon that is not a range leaves the name alone.
     assert_eq!(header_locus("weird:name"), ("weird:name", 0));
+}
+
+#[test]
+fn bedgraph_bins_by_max_and_keeps_zero_runs() {
+    let sig = read_bedgraph(Cursor::new(
+        "track type=bedGraph name=\"orange (Fca126)\"\nchrX 0 40 30\nchrX 40 60 0\nchrX 60 100 20\nchr1 0 100 99\n",
+    ))
+    .unwrap();
+    assert_eq!(sig.name.as_deref(), Some("orange (Fca126)"));
+    assert_eq!(sig.binned("chrX", 0.0, 100.0, 5), vec![30.0, 30.0, 0.0, 20.0, 20.0]);
+    // A window past the data has no values, which is different from zero.
+    assert!(sig.binned("chrX", 200.0, 300.0, 2).iter().all(|v| v.is_nan()));
+    assert!(read_bedgraph(Cursor::new("chrX 0 10\n")).is_err());
+}
+
+#[test]
+fn percent_signal_collapses_runs_and_skips_gaps() {
+    use gcat_io::annot::Signal;
+    let s = Signal::from_percent("tiger", "chrX", 100, &[99.6, 100.0, f32::NAN, 50.2, 50.0]);
+    assert!(s.percent);
+    assert_eq!(s.spans, vec![("chrX".into(), 100, 102, 100.0), ("chrX".into(), 103, 105, 50.0)]);
 }

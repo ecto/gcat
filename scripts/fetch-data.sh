@@ -49,10 +49,38 @@ if [ ! -s data/orange-cat.gff3 ]; then
         > data/orange-cat.gff3
 fi
 printf 'NC_018741.3\t110432078\t110437152\torange\n' > data/orange-cat.bed
+# The cat behind the F.catus_Fca126_mat1.0 assembly is orange, so its sequence
+# over the same stretch is an orange allele. Tiled into reads and mapped back,
+# it gives the coverage an orange male's sequencing would: none over the deletion.
+if [ ! -s data/orange-cat-fca126.fa ]; then
+    sleep 1
+    curl -sS --fail --retry 3 \
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NC_058386.1&rettype=fasta&retmode=text&seq_start=107716000&seq_stop=107728000" \
+        -o data/orange-cat-fca126.fa
+fi
+# The same stretch in other species, for the comparison lanes. Each is 14 kb
+# ending 39 kb before that species' ARHGAP36 3' end, which is where the cat
+# window lines up (annotated start sites vary too much between species to
+# anchor on). The page aligns them itself.
+while read -r sp acc end; do
+    out="data/orange-cat-$sp.fa"
+    [ -s "$out" ] && continue
+    sleep 1
+    curl -sS --fail --retry 3 \
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=${acc}&rettype=fasta&retmode=text&seq_start=$((end - 53000))&seq_stop=$((end - 39000))" \
+        -o "$out"
+done <<'SPECIES'
+tiger NC_056677.1 107761871
+dog NC_051843.1 104084083
+human NC_000023.11 131089884
+mouse NC_000086.8 48589120
+SPECIES
+python3 -I scripts/simulate-coverage.py data/orange-cat.fa data/orange-cat-fca126.fa "orange (Fca126)" \
+    > data/orange-cat.bedgraph
 printf '  %-14s %s\n' orange-cat.fa "cat chrX, 9 kb — ARHGAP36, with .gff3 genes and .bed deletion"
 # The web demo serves its samples from site/data.
 mkdir -p site/data
-cp data/*.fa data/*.gff3 data/*.bed site/data/ 2>/dev/null || true
+cp data/*.fa data/*.gff3 data/*.bed data/*.bedgraph site/data/ 2>/dev/null || true
 
 # A synthetic FASTQ so the read-quality panel has something to show. Long reads
 # are deliberately worse, which is the correlation the length-vs-quality plot
