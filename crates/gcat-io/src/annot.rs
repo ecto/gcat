@@ -4,7 +4,6 @@
 //! is 1-based inclusive and BED is already 0-based half-open; converting once
 //! at the edge means nothing downstream has to remember which it came from.
 
-use std::collections::HashMap;
 use std::io::{self, BufRead};
 
 /// Which strand a feature is on.
@@ -184,23 +183,16 @@ pub struct Gene {
 /// Build gene models from GFF3 features by following `Parent` links from
 /// exons and CDS up through transcripts to genes.
 pub fn genes(features: &[Feature]) -> Vec<Gene> {
-    let mut by_id: HashMap<&str, &Feature> = HashMap::new();
-    for f in features {
-        if let Some(id) = &f.id {
-            by_id.insert(id, f);
-        }
-    }
-    let mut order: Vec<&str> = Vec::new();
-    let mut models: HashMap<&str, Gene> = HashMap::new();
-    for f in features {
+    let by_id = IdIndex::new(features);
+    let mut models: Vec<(usize, Gene)> = Vec::new();
+    for (i, f) in features.iter().enumerate() {
         let is_gene = f.parent.is_none() && matches!(f.kind.as_str(), "gene" | "pseudogene");
         if !is_gene {
             continue;
         }
         let Some(id) = f.id.as_deref() else { continue };
-        order.push(id);
-        models.insert(
-            id,
+        models.push((
+            i,
             Gene {
                 seqid: f.seqid.clone(),
                 name: f.name.clone().unwrap_or_else(|| id.to_string()),
@@ -210,14 +202,17 @@ pub fn genes(features: &[Feature]) -> Vec<Gene> {
                 exons: Vec::new(),
                 cds: None,
             },
-        );
+        ));
     }
     for f in features {
         let is_exon = f.kind == "exon";
         if !is_exon && f.kind != "CDS" {
             continue;
         }
-        let Some(g) = root(&by_id, f).and_then(|r| models.get_mut(r)) else { continue };
+        let Some(at) = root(&by_id, features, f) else { continue };
+        // Genes are pushed in feature order, so their feature indices are sorted.
+        let Ok(k) = models.binary_search_by_key(&at, |(i, _)| *i) else { continue };
+        let g = &mut models[k].1;
         if is_exon {
             g.exons.push((f.start, f.end));
         } else {
@@ -227,11 +222,19 @@ pub fn genes(features: &[Feature]) -> Vec<Gene> {
             });
         }
     }
-    order
+    models
         .into_iter()
-        .filter_map(|id| models.remove(id))
-        .map(|mut g| {
-            g.exons.sort_unstable();
+        .map(|(_, mut g)| {
+            // Insertion sort: exon lists are short and nearly sorted already,
+            // and a general sort here would add another copy of one to the
+            // browser bundle.
+            for i in 1..g.exons.len() {
+                let mut j = i;
+                while j > 0 && g.exons[j - 1] > g.exons[j] {
+                    g.exons.swap(j - 1, j);
+                    j -= 1;
+                }
+            }
             let mut merged: Vec<(u64, u64)> = Vec::with_capacity(g.exons.len());
             for (a, b) in g.exons.drain(..) {
                 match merged.last_mut() {
@@ -245,14 +248,57 @@ pub fn genes(features: &[Feature]) -> Vec<Gene> {
         .collect()
 }
 
+/// Feature lookup by `ID`. A sorted list of `hash << 32 | index` rather than a
+/// `HashMap`: in the browser bundle a hash map brings its own table and hasher,
+/// and this reuses the one `u64` sort everything else does. Hash collisions
+/// are resolved by comparing the ids themselves, so lookups stay exact.
+struct IdIndex<'a> {
+    keys: Vec<u64>,
+    features: &'a [Feature],
+}
+
+fn fnv(s: &str) -> u64 {
+    let mut h: u32 = 0x811c_9dc5;
+    for b in s.bytes() {
+        h = (h ^ b as u32).wrapping_mul(0x0100_0193);
+    }
+    h as u64
+}
+
+impl<'a> IdIndex<'a> {
+    fn new(features: &'a [Feature]) -> IdIndex<'a> {
+        let mut keys: Vec<u64> = features
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| f.id.as_deref().map(|id| fnv(id) << 32 | i as u64))
+            .collect();
+        keys.sort_unstable();
+        IdIndex { keys, features }
+    }
+
+    /// Index of the feature with this id; the last one if a broken file
+    /// repeats an id.
+    fn get(&self, id: &str) -> Option<usize> {
+        let h = fnv(id);
+        let lo = self.keys.partition_point(|&k| k >> 32 < h);
+        let hi = self.keys.partition_point(|&k| k >> 32 <= h);
+        self.keys[lo..hi]
+            .iter()
+            .rev()
+            .map(|&k| (k & 0xffff_ffff) as usize)
+            .find(|&i| self.features[i].id.as_deref() == Some(id))
+    }
+}
+
 /// Walk up `Parent` links to the outermost ancestor; for an exon, that is its
-/// gene. Bounded so a cycle in a broken file cannot hang the page.
-fn root<'a>(by_id: &HashMap<&'a str, &'a Feature>, f: &'a Feature) -> Option<&'a str> {
-    let mut cur = f.parent.as_deref()?;
+/// gene. Returns its index. Bounded so a cycle in a broken file cannot hang
+/// the page.
+fn root(by_id: &IdIndex, features: &[Feature], f: &Feature) -> Option<usize> {
+    let mut cur = by_id.get(f.parent.as_deref()?)?;
     for _ in 0..8 {
-        match by_id.get(cur).and_then(|p| p.parent.as_deref()) {
-            Some(up) if by_id.contains_key(up) => cur = up,
-            _ => break,
+        match features[cur].parent.as_deref().and_then(|p| by_id.get(p)) {
+            Some(up) => cur = up,
+            None => break,
         }
     }
     Some(cur)

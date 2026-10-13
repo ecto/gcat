@@ -99,8 +99,12 @@ fn code(b: u8) -> Option<u64> {
     }
 }
 
-/// `(kmer, position)` for every clean k-mer, sorted by k-mer.
-fn kmers(s: &[u8]) -> Vec<(u64, u32)> {
+// Every sort below is over plain `u64`s, with the fields packed high to low in
+// sort order. One element type means one copy of the sort routine in the
+// browser bundle instead of one per tuple; it is also faster.
+
+/// `kmer << 32 | position` for every clean k-mer, sorted. A 12-mer is 24 bits.
+fn kmers(s: &[u8]) -> Vec<u64> {
     let mask = (1u64 << (2 * K)) - 1;
     let mut out = Vec::with_capacity(s.len());
     let (mut v, mut run) = (0u64, 0usize);
@@ -110,7 +114,7 @@ fn kmers(s: &[u8]) -> Vec<(u64, u32)> {
                 v = ((v << 2) | c) & mask;
                 run += 1;
                 if run >= K {
-                    out.push((v, (i + 1 - K) as u32));
+                    out.push(v << 32 | (i + 1 - K) as u64);
                 }
             }
             None => run = 0,
@@ -129,20 +133,26 @@ struct Run {
 }
 
 fn runs(reference: &[u8], query: &[u8]) -> Vec<Run> {
+    const LOW: u64 = 0xffff_ffff;
     let index = kmers(reference);
-    let mut anchors: Vec<(usize, usize)> = Vec::new();
-    for (km, qp) in kmers(query) {
-        let lo = index.partition_point(|&(k, _)| k < km);
-        let hi = index.partition_point(|&(k, _)| k <= km);
+    // Diagonals run from -reference.len() to query.len(); shift them positive.
+    let shift = reference.len() as u64;
+    let mut anchors: Vec<u64> = Vec::new();
+    for entry in kmers(query) {
+        let (km, qp) = (entry >> 32, entry & LOW);
+        let lo = index.partition_point(|&e| e >> 32 < km);
+        let hi = index.partition_point(|&e| e >> 32 <= km);
         if hi > lo && hi - lo <= MAX_OCC {
-            anchors.extend(index[lo..hi].iter().map(|&(_, rp)| (rp as usize, qp as usize)));
+            anchors.extend(index[lo..hi].iter().map(|&e| (qp + shift - (e & LOW)) << 32 | (e & LOW)));
         }
     }
-    // Sort by diagonal, then position, so overlapping anchors on one diagonal
-    // are adjacent and merge in a single pass.
-    anchors.sort_unstable_by_key(|&(r, q)| (q as i64 - r as i64, r));
+    // Sorted by diagonal, then position, so overlapping anchors on one
+    // diagonal are adjacent and merge in a single pass.
+    anchors.sort_unstable();
     let mut out: Vec<Run> = Vec::new();
-    for (r, q) in anchors {
+    for a in anchors {
+        let r = (a & LOW) as usize;
+        let q = ((a >> 32) + r as u64 - shift) as usize;
         if let Some(last) = out.last_mut() {
             if q as i64 - r as i64 == last.q as i64 - last.r as i64 && r <= last.r + last.len {
                 last.len = last.len.max(r + K - last.r);
@@ -151,8 +161,9 @@ fn runs(reference: &[u8], query: &[u8]) -> Vec<Run> {
         }
         out.push(Run { r, q, len: K });
     }
-    out.sort_unstable_by_key(|run| (run.r, run.q));
-    out
+    let mut order: Vec<u64> = out.iter().enumerate().map(|(i, run)| (run.r as u64) << 32 | i as u64).collect();
+    order.sort_unstable();
+    order.into_iter().map(|k| out[(k & LOW) as usize]).collect()
 }
 
 /// The highest-scoring colinear chain: each run starts after the previous one

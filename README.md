@@ -128,7 +128,7 @@ Tiger, dog, human and mouse lanes show most of the deleted stretch is shared
 across mammals. A calico panel beside the track simulates the X-inactivation
 that turns one allele into patches.
 
-The wasm bundle is 144 KB.
+The wasm bundle is 118 KB, 57 KB gzipped.
 
 ## Test data
 
