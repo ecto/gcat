@@ -2,7 +2,7 @@
 //! a browser. Chunk boundaries are the interesting part: a byte stream splits
 //! wherever the network or the File API feels like it.
 
-use gcat_wasm::Analyzer;
+use gcat_wasm::{Analyzer, Annotations};
 
 fn feed(data: &[u8], chunk: usize) -> Analyzer {
     let mut a = Analyzer::new(4, 10);
@@ -194,4 +194,35 @@ fn captures_the_first_header_only() {
     // No header at all is not an error.
     let bare = feed(b"ACGTACGT\n", 3);
     assert_eq!(bare.header(), "");
+}
+
+#[test]
+fn header_range_sets_the_coordinate_offset() {
+    let mut a = Analyzer::new(4, 100);
+    a.push(b">NC_018741.3:110430079-110439152 Felis catus\nACGT\n");
+    a.finish();
+    assert_eq!(a.seq_name(), "NC_018741.3");
+    assert_eq!(a.seq_offset(), 110430078.0);
+}
+
+#[test]
+fn annotations_query_by_window() {
+    let mut ann = Annotations::new();
+    let gff = "chrX\t.\tgene\t101\t500\t.\t-\t.\tID=g;Name=G\n\
+               chrX\t.\tmRNA\t101\t500\t.\t-\t.\tID=t;Parent=g\n\
+               chrX\t.\texon\t101\t200\t.\t-\t.\tParent=t\n\
+               chrX\t.\texon\t401\t500\t.\t-\t.\tParent=t\n\
+               chrX\t.\tCDS\t150\t450\t.\t-\t0\tParent=t\n";
+    assert_eq!(ann.add_gff3(gff).unwrap(), 1);
+    assert_eq!(ann.add_bed("chrX 250 300 del\nchr1 0 10\n").unwrap(), 2);
+
+    assert_eq!(
+        ann.genes_in("chrX", 0.0, 1000.0),
+        vec![100.0, 500.0, -1.0, 149.0, 450.0, 2.0, 100.0, 200.0, 400.0, 500.0]
+    );
+    assert_eq!(ann.gene_names_in("chrX", 0.0, 1000.0), vec!["G".to_string()]);
+    assert!(ann.genes_in("chrX", 500.0, 600.0).is_empty(), "end is exclusive");
+    assert!(ann.genes_in("chr1", 0.0, 1000.0).is_empty(), "seqid must match");
+    assert_eq!(ann.regions_in("chrX", 0.0, 1000.0), vec![250.0, 300.0, 0.0]);
+    assert_eq!(ann.region_names_in("chrX", 0.0, 1000.0), vec!["del".to_string()]);
 }

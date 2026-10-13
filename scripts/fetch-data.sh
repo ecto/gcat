@@ -31,9 +31,28 @@ fetch NC_001422.1 phix174.fa "phiX174, 5.4 kb — Illumina spike-in control"
 fetch NC_001416.1 lambda.fa  "Lambda phage, 48.5 kb — nanopore calibration strand"
 fetch NC_045512.2 sars2.fa   "SARS-CoV-2, 29.9 kb"
 fetch NC_000913.3 ecoli.fa   "E. coli K-12 MG1655, 4.6 Mb"
+# Orange coat in cats: 9 kb of chrX (Felis_catus_9.0) around ARHGAP36, with
+# its gene annotation and the 5,074 bp deletion that makes cats orange
+# (NC_018741.3:g.110432079_110437152del; Toh et al. and Kaelin et al., 2025).
+if [ ! -s data/orange-cat.fa ]; then
+    curl -sS --fail --retry 3 \
+        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NC_018741.3&rettype=fasta&retmode=text&seq_start=110430079&seq_stop=110439152" \
+        -o data/orange-cat.fa
+    sleep 1
+fi
+if [ ! -s data/orange-cat.gff3 ]; then
+    # NCBI returns the whole chromosome's annotation regardless of range, so
+    # keep only what overlaps the 120 kb around the gene.
+    curl -sS --fail --retry 3 \
+        "https://www.ncbi.nlm.nih.gov/sviewer/viewer.cgi?db=nuccore&report=gff3&id=NC_018741.3" |
+        awk -F'\t' '/^##gff-version/ || (NF >= 9 && $3 != "region" && $3 != "cDNA_match" && $5 >= 110380000 && $4 <= 110500000)' \
+        > data/orange-cat.gff3
+fi
+printf 'NC_018741.3\t110432078\t110437152\torange\n' > data/orange-cat.bed
+printf '  %-14s %s\n' orange-cat.fa "cat chrX, 9 kb — ARHGAP36, with .gff3 genes and .bed deletion"
 # The web demo serves its samples from site/data.
 mkdir -p site/data
-cp data/*.fa site/data/ 2>/dev/null || true
+cp data/*.fa data/*.gff3 data/*.bed site/data/ 2>/dev/null || true
 
 # A synthetic FASTQ so the read-quality panel has something to show. Long reads
 # are deliberately worse, which is the correlation the length-vs-quality plot

@@ -106,6 +106,12 @@ canvas{display:block;max-width:100%;max-height:100%}
 .b-T{color:rgb(var(--T))}.b-N{color:rgb(var(--dim))}
 .sel{background:rgb(var(--accent)/.24);border-radius:2px}
 .hit{background:rgb(var(--accent)/.36);border-radius:2px}
+/* An annotated region, e.g. a known deletion: struck through, since the
+   bases are present in this reference but missing from the variant. */
+.del{background:rgb(var(--G)/.14);text-decoration:line-through rgb(var(--G)/.7)}
+#locus{width:100%;height:64px;display:block;flex:0 0 auto;cursor:pointer;
+  border-bottom:1px solid rgb(var(--line))}
+#locus.hide{display:none}
 #minimap{width:100%;height:30px;display:block;cursor:crosshair;
   border-top:1px solid rgb(var(--line));flex:0 0 auto}
 
@@ -145,7 +151,7 @@ canvas{display:block;max-width:100%;max-height:100%}
     <span class="grow"></span>
     <button class="tb" id="openBtn">Open<kbd>&#8984;O</kbd></button>
     <button class="tb" id="palBtn">ember</button>
-    <input type="file" id="file" class="hide" accept=".fa,.fasta,.fna,.fq,.fastq,.txt">
+    <input type="file" id="file" class="hide" accept=".fa,.fasta,.fna,.fq,.fastq,.txt,.gff,.gff3,.bed" multiple>
   </header>
 
   <div class="body">
@@ -171,6 +177,8 @@ canvas{display:block;max-width:100%;max-height:100%}
           <button class="tb" data-s="lambda.fa">lambda &middot; 49 kb</button>
           <button class="tb" data-s="sars2.fa">SARS-CoV-2 &middot; 30 kb</button>
           <button class="tb" data-s="ecoli.fa">E. coli &middot; 4.6 Mb</button>
+          <button class="tb" data-s="orange-cat.fa" data-ann="orange-cat.gff3 orange-cat.bed"
+            data-note="struck through: the deletion that makes cats orange">orange cat &middot; ARHGAP36</button>
           <button class="tb" data-s="sample.fq">reads &middot; FASTQ</button>
         </div>
         <div class="kbd">
@@ -192,6 +200,7 @@ canvas{display:block;max-width:100%;max-height:100%}
           <input class="field" id="motif" placeholder="find motif" spellcheck="false">
           <button class="tb" id="findNext">Next</button>
         </div>
+        <canvas id="locus" class="hide"></canvas>
         <div class="ruler" id="ruler"></div>
         <div class="view" id="view"><div class="spacer" id="spacer"></div></div>
         <canvas id="minimap"></canvas>
@@ -234,11 +243,15 @@ canvas{display:block;max-width:100%;max-height:100%}
 </div>
 
 <script type="module">
-import init, { Analyzer } from './pkg/gcat_wasm.js';
+import init, { Analyzer, Annotations } from './pkg/gcat_wasm.js';
 
 const $ = id => document.getElementById(id);
 let wasm, analyzer, palette = +(localStorage.gcatPalette ?? 0), view = localStorage.gcatView || 'seq';
 let rafPending = false, sel = null, dragFrom = null, motif = '';
+// Annotation attached to the open sequence, and its regions as [lo, hi)
+// editor offsets for the row renderer, which checks them per base.
+let ann = null, regions = [], trackX = null;
+const ANN_EXT = /\.(gff3?|bed)$/i;
 const PALETTES = ['ember', 'ice', 'mono'];
 const COLS = 60, GROUP = 10, ROW_H = 18;
 
@@ -386,6 +399,7 @@ function buildRow(rowIdx, offWidth) {
     let cls = BASE_CLASS[bases[i]];
     if (sel && abs >= sel.lo && abs < sel.hi) cls += ' sel';
     else if (marked && marked[i]) cls += ' hit';
+    if (regions.length && regions.some(([a, b]) => abs >= a && abs < b)) cls += ' del';
     html += `<b class="${cls}">${String.fromCharCode(bases[i])}</b>`;
     if ((i + 1) % GROUP === 0 && i + 1 < visible) html += ' ';
   }
@@ -423,6 +437,107 @@ function renderRows() {
   $('ruler').textContent = rulerText(offWidth);
 }
 
+/* Annotation around the open sequence, to scale: genes with their exons
+   (tall where they code for protein), regions bracketed, and below them the
+   reference allele beside one lane per region with that stretch removed. The
+   domain stretches to cover any gene the window touches, so a 9 kb window into
+   a 50 kb gene still shows the whole gene, with the window outlined in it. */
+function drawLocus() {
+  const c = $('locus');
+  if (!ann || c.classList.contains('hide')) return;
+  const id = analyzer.seq_name(), off = analyzer.seq_offset(), len = analyzer.seq_len();
+  const g = ann.genes_in(id, off, off + len), names = ann.gene_names_in(id, off, off + len);
+  const rg = ann.regions_in(id, off, off + len), rnames = ann.region_names_in(id, off, off + len);
+
+  const genes = [];
+  for (let i = 0, k = 0; i < g.length; k++) {
+    const n = g[i + 5], exons = [];
+    for (let e = 0; e < n; e++) exons.push([g[i + 6 + 2*e], g[i + 7 + 2*e]]);
+    genes.push({ name: names[k], start: g[i], end: g[i + 1], strand: g[i + 2], cds: g[i + 3] < 0 ? null : [g[i + 3], g[i + 4]], exons });
+    i += 6 + 2*n;
+  }
+  const regs = [];
+  for (let i = 0; i < rg.length; i += 3) regs.push({ start: rg[i], end: rg[i + 1], name: rnames[i / 3] || 'region' });
+  const lanes = regs.length ? Math.min(3, regs.length) + 1 : 0;
+
+  const H = (lanes ? 70 + lanes * 18 : 64), w = Math.max(200, c.clientWidth), dpr = Math.min(2, devicePixelRatio||1);
+  c.style.height = H + 'px'; c.width = w * dpr; c.height = H * dpr;
+  const ctx = c.getContext('2d'); ctx.scale(dpr, dpr);
+  const css = n => getComputedStyle(document.body).getPropertyValue(n).trim();
+  const accent = css('--accent'), orange = css('--G'), txt = css('--txt'), muted = css('--muted'), dim = css('--dim');
+
+  let a = off, b = off + len;
+  for (const ge of genes) { a = Math.min(a, ge.start); b = Math.max(b, ge.end); }
+  const pad = (b - a) * 0.02, lo = a - pad, hi = b + pad, L = 108, R = w - 18;
+  const X = pos => L + (pos - lo) / (hi - lo) * (R - L);
+  trackX = { L, R, lo, hi };
+
+  ctx.font = `11px ${css('--mono')}`; ctx.textBaseline = 'middle';
+  // One gene is named in the gutter, where it cannot collide with a region's
+  // label; several are named above themselves where there is room.
+  if (genes.length === 1) { ctx.fillStyle = `rgb(${txt})`; ctx.fillText(genes[0].name.slice(0, 13), 14, 46); }
+  ctx.fillStyle = `rgb(${muted})`; ctx.fillText(id.slice(0, 13), 14, genes.length === 1 ? 60 : 46);
+
+  // Scale bar: the 1-2-5 step nearest a sixth of the domain.
+  const target = (hi - lo) / 6, mag = 10 ** Math.floor(Math.log10(target));
+  const step = [1, 2, 5, 10].map(m => m * mag).reduce((p, q) => Math.abs(q - target) < Math.abs(p - target) ? q : p);
+  const sw = X(lo + step) - X(lo);
+  ctx.fillStyle = `rgb(${dim})`; ctx.fillRect(R - sw, 12, sw, 1);
+  ctx.textAlign = 'right'; ctx.fillText(span(step), R - sw - 6, 12); ctx.textAlign = 'left';
+
+  // Loaded window, when it is not the whole domain, and the editor's viewport.
+  const v = $('view');
+  if (genes.some(ge => ge.start < off || ge.end > off + len)) {
+    ctx.strokeStyle = `rgb(${muted} / .5)`; ctx.setLineDash([2, 3]);
+    ctx.strokeRect(X(off) + .5, 28.5, X(off + len) - X(off), 34); ctx.setLineDash([]);
+  }
+  const vf = off + (v.scrollTop / ROW_H) * COLS, vt = Math.min(off + len, vf + (v.clientHeight / ROW_H) * COLS);
+  ctx.fillStyle = `rgb(${accent} / .22)`; ctx.fillRect(X(vf), 28, Math.max(1.5, X(vt) - X(vf)), 35);
+
+  const y = 46;
+  ctx.strokeStyle = `rgb(${muted})`; ctx.lineWidth = 1;
+  for (const ge of genes) {
+    const x0 = X(ge.start), x1 = X(ge.end);
+    ctx.beginPath(); ctx.moveTo(x0, y + .5); ctx.lineTo(x1, y + .5); ctx.stroke();
+    if (ge.strand) for (let x = x0 + 14; x < x1 - 6; x += 22) {
+      const d = 3 * ge.strand;
+      ctx.beginPath(); ctx.moveTo(x - d, y - 2.5); ctx.lineTo(x, y + .5); ctx.lineTo(x - d, y + 3.5); ctx.stroke();
+    }
+    ctx.fillStyle = `rgb(${txt})`;
+    for (const [ea, eb] of ge.exons) {
+      ctx.fillRect(X(ea), y - 3, Math.max(1.5, X(eb) - X(ea)), 7);
+      if (!ge.cds) continue;
+      const ca = Math.max(ea, ge.cds[0]), cb = Math.min(eb, ge.cds[1]);
+      if (cb > ca) ctx.fillRect(X(ca), y - 7, Math.max(1.5, X(cb) - X(ca)), 15);
+    }
+    if (genes.length > 1 && ctx.measureText(ge.name).width < x1 - x0) ctx.fillText(ge.name, Math.max(x0, L), 12);
+  }
+
+  ctx.strokeStyle = `rgb(${orange})`;
+  for (const rr of regs) {
+    const x0 = X(rr.start), x1 = X(rr.end);
+    ctx.fillStyle = `rgb(${orange} / .18)`; ctx.fillRect(x0, y - 10, x1 - x0, 20);
+    ctx.beginPath(); ctx.moveTo(x0 + .5, 24); ctx.lineTo(x0 + .5, 20); ctx.lineTo(x1 - .5, 20); ctx.lineTo(x1 - .5, 24); ctx.stroke();
+    ctx.fillStyle = `rgb(${orange})`; ctx.fillText(`${rr.name} · ${span(rr.end - rr.start)}`, x0, 11);
+  }
+
+  // Reference allele, then each region's allele with that stretch spliced out.
+  const lane = (yy, label, gap, col) => {
+    ctx.fillStyle = `rgb(${muted})`; ctx.fillText(label.slice(0, 13), 14, yy);
+    ctx.fillStyle = col;
+    if (!gap) { ctx.fillRect(X(a), yy - 2, X(b) - X(a), 4); return; }
+    const [d0, d1] = [X(gap.start), X(gap.end)];
+    ctx.fillRect(X(a), yy - 2, d0 - X(a), 4);
+    ctx.fillRect(d1, yy - 2, X(b) - d1, 4);
+    ctx.strokeStyle = col; ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(d0, yy + .5); ctx.quadraticCurveTo((d0 + d1) / 2, yy + 9, d1, yy + .5); ctx.stroke(); ctx.setLineDash([]);
+  };
+  if (lanes) {
+    lane(80, 'reference', null, `rgb(${muted})`);
+    regs.slice(0, 3).forEach((rr, i) => lane(98 + i * 18, rr.name, rr, `rgb(${orange})`));
+  }
+}
+
 function drawMinimap() {
   const c = $('minimap'), w = Math.max(200, c.clientWidth), dpr = Math.min(2, devicePixelRatio||1);
   c.width = w * dpr; c.height = 30 * dpr;
@@ -449,7 +564,7 @@ function drawMinimap() {
 function scrollToBase(pos) {
   const v = $('view');
   v.scrollTop = Math.max(0, Math.floor(pos / COLS) * ROW_H - v.clientHeight / 2);
-  renderRows(); drawMinimap();
+  renderRows(); drawMinimap(); drawLocus();
 }
 
 /* ── status bar ────────────────────────────────────────────────────────── */
@@ -479,7 +594,7 @@ function drawStatus() {
 function paint() {
   if (!analyzer) return;
   drawStatus();
-  if (view === 'seq') { renderRows(); drawMinimap(); }
+  if (view === 'seq') { renderRows(); drawMinimap(); drawLocus(); }
   else if (view === 'cgr') drawCgr();
   else if (view === 'skew') drawSkew();
   else if (view === 'hist') drawHist();
@@ -499,6 +614,8 @@ async function analyze(stream, total, label) {
   $('empty').classList.add('hide');
   $('dot').classList.remove('idle');
   sel = null; motif = ''; $('motif').value = '';
+  ann = null; regions = []; trackX = null;
+  $('locus').classList.add('hide');
   analyzer = new Analyzer(9, 10000);
   $('view').scrollTop = 0;
   setView(view);
@@ -531,7 +648,35 @@ async function analyze(stream, total, label) {
   $('chip').title = `${label}\n${head}\n${bp(analyzer.bases())} bp in ${ms.toFixed(0)} ms`;
 }
 
-function openFile(f) { analyze(f.stream(), f.size, f.name); }
+// A sequence and its annotation can arrive together; the sequence goes first so
+// the annotation has coordinates to land on.
+async function openFiles(files) {
+  files = [...files];
+  const seq = files.find(f => !ANN_EXT.test(f.name));
+  if (seq) await analyze(seq.stream(), seq.size, seq.name);
+  for (const f of files) if (ANN_EXT.test(f.name)) addAnnotation(f.name, await f.text());
+}
+
+function addAnnotation(name, text) {
+  if (!analyzer) { $('stStatus').textContent = `open a sequence before ${name}`; return; }
+  ann ??= new Annotations();
+  try { /\.bed$/i.test(name) ? ann.add_bed(text) : ann.add_gff3(text); }
+  catch (e) { $('stStatus').textContent = `${name}: ${e.message ?? e}`; return; }
+
+  const id = analyzer.seq_name(), off = analyzer.seq_offset(), end = off + analyzer.seq_len();
+  const r = ann.regions_in(id, off, end);
+  regions = [];
+  for (let i = 0; i < r.length; i += 3) regions.push([r[i] - off, r[i + 1] - off]);
+  const genes = ann.gene_names_in(id, off, end), names = ann.region_names_in(id, off, end);
+  const found = genes.length + regions.length;
+  $('locus').classList.toggle('hide', !found);
+  $('chipDesc').textContent = found
+    ? '· ' + [...genes, ...names.map((n, i) => `${n || 'region'} ${span(regions[i][1] - regions[i][0])}`)].join(' · ')
+    : `· nothing in ${name} falls on ${id}`;
+  redraw();
+}
+
+const span = n => n < 1000 ? `${n} bp` : `${(n / 1000).toFixed(1)} kb`;
 
 /* ── events ────────────────────────────────────────────────────────────── */
 $('rail').addEventListener('click', e => {
@@ -539,7 +684,7 @@ $('rail').addEventListener('click', e => {
 });
 $('openBtn').onclick = () => $('file').click();
 $('dz').onclick = () => $('file').click();
-$('file').onchange = e => e.target.files[0] && openFile(e.target.files[0]);
+$('file').onchange = e => openFiles(e.target.files);
 
 document.querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
   $('stStatus').textContent = `fetching ${b.dataset.s}…`;
@@ -547,6 +692,13 @@ document.querySelectorAll('[data-s]').forEach(b => b.onclick = async () => {
     const res = await fetch('data/' + b.dataset.s);
     if (!res.ok) throw new Error(res.status);
     await analyze(res.body, +res.headers.get('content-length') || 0, b.dataset.s);
+    for (const name of (b.dataset.ann || '').split(' ').filter(Boolean)) {
+      const a = await fetch('data/' + name);
+      if (!a.ok) throw new Error(a.status);
+      addAnnotation(name, await a.text());
+    }
+    if (b.dataset.note) $('chipDesc').textContent = '· ' + b.dataset.note;
+    if (regions.length) scrollToBase(regions[0][0]);
   } catch {
     $('stStatus').textContent = `could not load ${b.dataset.s} — run scripts/fetch-data.sh`;
   }
@@ -558,7 +710,7 @@ addEventListener('dragleave', e => { e.preventDefault(); if (--dragDepth <= 0) {
 addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => {
   e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging');
-  if (e.dataTransfer.files[0]) openFile(e.dataTransfer.files[0]);
+  openFiles(e.dataTransfer.files);
 });
 
 $('palBtn').onclick = () => {
@@ -570,7 +722,7 @@ $('palBtn').onclick = () => {
 $('gamma').oninput = () => analyzer && view === 'cgr' && drawCgr();
 
 const v = $('view');
-v.onscroll = () => { renderRows(); drawMinimap(); };
+v.onscroll = () => { renderRows(); drawMinimap(); drawLocus(); };
 function baseAtEvent(e) {
   const row = e.target.closest('.row'); if (!row) return null;
   const col = row.querySelector('.seqcol');
@@ -593,6 +745,12 @@ v.onmousemove = e => {
 };
 addEventListener('mouseup', () => { dragFrom = null; });
 
+$('locus').onclick = e => {
+  if (!trackX) return;
+  const r = e.currentTarget.getBoundingClientRect(), { L, R, lo, hi } = trackX;
+  const pos = lo + (e.clientX - r.left - L) / (R - L) * (hi - lo) - analyzer.seq_offset();
+  if (pos >= 0 && pos < analyzer.seq_len()) scrollToBase(pos);
+};
 $('minimap').onclick = e => {
   const r = e.currentTarget.getBoundingClientRect();
   scrollToBase(((e.clientX - r.left) / r.width) * analyzer.seq_len());
