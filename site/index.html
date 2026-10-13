@@ -208,7 +208,7 @@ canvas{display:block;max-width:100%;max-height:100%}
             <b class="b-A">A</b> <b class="b-C">C</b> <b class="b-G">G</b> <b class="b-T">T</b>
           </span>
           <span class="grow"></span>
-          <input class="field" id="seek" title="Type a position and press Enter" placeholder="go to base" spellcheck="false">
+          <input class="field" id="seek" title="Type a position and press Enter. For a chromosome extract, chromosome positions work too." placeholder="go to base" spellcheck="false">
           <input class="field" id="motif" title="Highlight every match; N matches any base" placeholder="find motif" spellcheck="false">
           <button class="tb" id="findNext" title="Jump to the next match">Next</button>
         </div>
@@ -437,7 +437,7 @@ function buildRow(rowIdx, offWidth) {
     }
   }
   return `<div class="row" style="top:${(rowIdx*ROW_H).toFixed(0)}px">`
-    + `<span class="off">${String(start).padStart(offWidth,' ')}</span>`
+    + `<span class="off">${String(analyzer.seq_offset() + start).padStart(offWidth,' ')}</span>`
     + `<span class="seqcol"${struck ? ' title="Struck through: present in the reference, missing from the annotated deletion allele"' : ''}>${html}</span>${gutter}</div>`;
 }
 
@@ -445,7 +445,9 @@ function renderRows() {
   const v = $('view'), spacer = $('spacer'), total = analyzer.seq_len();
   if (total === 0) return;
   const rows = Math.ceil(total / COLS);
-  const offWidth = String((rows - 1) * COLS).length;
+  // Positions are in the sequence's own coordinates: for an extract whose
+  // header names a range, that is the chromosome, not the file.
+  const offWidth = String(analyzer.seq_offset() + (rows - 1) * COLS).length;
   spacer.style.height = (rows * ROW_H).toFixed(0) + 'px';
   const first = Math.max(0, Math.floor(v.scrollTop / ROW_H) - 2);
   const last = Math.min(rows, first + Math.ceil(v.clientHeight / ROW_H) + 4);
@@ -946,7 +948,10 @@ $('minimap').onclick = e => {
 $('seek').onkeydown = e => {
   if (e.key !== 'Enter') return;
   const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
-  if (!isNaN(n)) scrollToBase(n);
+  if (isNaN(n)) return;
+  // Accept a chromosome position for an extract, or an offset into the file.
+  const off = analyzer.seq_offset();
+  scrollToBase(off && n >= off ? n - off : n);
 };
 function runFind() {
   const m = $('motif').value.trim().toUpperCase().replace(/[^ACGTUN]/g, '');
