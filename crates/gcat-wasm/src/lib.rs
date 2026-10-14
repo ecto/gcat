@@ -10,6 +10,7 @@
 //! tab's memory and to show results while it is still reading.
 
 use gcat::Base;
+use gcat_io::annot::{self, header_locus, Feature, Gene, Signal, Strand};
 use gcat_viz::{colorize, Cgr, GcSkew, Hist2d, Palette};
 use wasm_bindgen::prelude::*;
 
@@ -437,6 +438,50 @@ impl Analyzer {
         self.first_header.clone()
     }
 
+    /// The sequence id annotation should match against: the header's first
+    /// word, minus any `:start-end` range suffix.
+    pub fn seq_name(&self) -> String {
+        header_locus(&self.first_header).0.to_string()
+    }
+
+    /// Align the first record of a second FASTA onto the retained sequence
+    /// and return percent identity per base, averaged over `window` bases;
+    /// NaN where it has no matching sequence. Both strands are tried.
+    pub fn identity_against(&self, fasta: &str, window: usize) -> Vec<f32> {
+        let mut reader = gcat_io::Reader::new(fasta.as_bytes());
+        let query = match reader.next_record() {
+            Ok(Some(rec)) => rec.seq.to_vec(),
+            // Not FASTA: treat the text as bare sequence.
+            _ => fasta.bytes().filter(u8::is_ascii_alphabetic).collect(),
+        };
+        gcat_align::align(&self.seq, &query)
+            .identity(window)
+            .into_iter()
+            .map(|v| v.unwrap_or(f32::NAN))
+            .collect()
+    }
+
+    /// A dot plot of the retained sequence (columns) against a second FASTA
+    /// (rows), or against itself when `fasta` is empty: two `size`²
+    /// grids of match counts, same strand then reverse complement.
+    pub fn dot_plot(&self, fasta: &str, size: usize) -> Vec<u32> {
+        if fasta.is_empty() {
+            return gcat_align::dot_plot(&self.seq, &self.seq, size);
+        }
+        let mut reader = gcat_io::Reader::new(fasta.as_bytes());
+        let other = match reader.next_record() {
+            Ok(Some(rec)) => rec.seq.to_ascii_uppercase(),
+            _ => fasta.bytes().filter(u8::is_ascii_alphabetic).map(|b| b.to_ascii_uppercase()).collect(),
+        };
+        gcat_align::dot_plot(&self.seq, &other, size)
+    }
+
+    /// Where base 0 of the editor sits in that sequence's coordinates. Non-zero
+    /// when the header names a subrange, as NCBI and faidx extracts do.
+    pub fn seq_offset(&self) -> f64 {
+        header_locus(&self.first_header).1 as f64
+    }
+
     /// Bases retained for the editor.
     pub fn seq_len(&self) -> f64 {
         self.seq.len() as f64
@@ -638,4 +683,144 @@ fn libm_ln(x: f64) -> f64 {
 fn pow2(n: i32) -> f64 {
     let clamped = n.clamp(-1022, 1023);
     f64::from_bits(((clamped + 1023) as u64) << 52)
+}
+
+/// Annotation loaded alongside a sequence: genes from GFF3, regions from BED.
+///
+/// Queries take chromosome coordinates and return flat number arrays, with
+/// names in a parallel string array, so a track redraw is two calls rather
+/// than an object per feature.
+#[wasm_bindgen]
+#[derive(Default)]
+pub struct Annotations {
+    genes: Vec<Gene>,
+    regions: Vec<Feature>,
+    signals: Vec<Signal>,
+}
+
+fn strand_code(s: Strand) -> f64 {
+    match s {
+        Strand::Forward => 1.0,
+        Strand::Reverse => -1.0,
+        Strand::Unknown => 0.0,
+    }
+}
+
+#[wasm_bindgen]
+impl Annotations {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Annotations {
+        Annotations::default()
+    }
+
+    /// Add genes from GFF3 text. Returns how many genes it contained.
+    pub fn add_gff3(&mut self, text: &str) -> Result<usize, JsError> {
+        let features = annot::read_gff3(text.as_bytes())?;
+        let genes = annot::genes(&features);
+        let n = genes.len();
+        self.genes.extend(genes);
+        Ok(n)
+    }
+
+    /// Add regions from BED text. Returns how many it contained.
+    pub fn add_bed(&mut self, text: &str) -> Result<usize, JsError> {
+        let regions = annot::read_bed(text.as_bytes())?;
+        let n = regions.len();
+        self.regions.extend(regions);
+        Ok(n)
+    }
+
+    /// Add a bedGraph track, named by its `track` line or else `fallback`.
+    /// Returns how many intervals it held.
+    pub fn add_bedgraph(&mut self, text: &str, fallback: &str) -> Result<usize, JsError> {
+        let mut sig = annot::read_bedgraph(text.as_bytes())?;
+        sig.name.get_or_insert_with(|| fallback.to_string());
+        let n = sig.spans.len();
+        self.signals.push(sig);
+        Ok(n)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.genes.is_empty() && self.regions.is_empty() && self.signals.is_empty()
+    }
+
+    /// Add a percent-identity track computed by [`Analyzer::identity_against`],
+    /// for the sequence `seqid` starting at `offset`.
+    pub fn add_identity(&mut self, name: &str, seqid: &str, offset: f64, values: &[f32]) {
+        self.signals.push(Signal::from_percent(name, seqid, offset as u64, values));
+    }
+
+    /// For each track [`Annotations::signal_names_in`] lists, whether its
+    /// values are percentages (1) or counts (0).
+    pub fn signal_percent_in(&self, seqid: &str, start: f64, end: f64) -> Vec<u8> {
+        self.signals_over(seqid, start, end).map(|s| s.percent as u8).collect()
+    }
+
+    /// Names of the signal tracks that have data on `seqid` within
+    /// `[start, end)`; their indices into this list are what
+    /// [`Annotations::signal_in`] takes.
+    pub fn signal_names_in(&self, seqid: &str, start: f64, end: f64) -> Vec<String> {
+        self.signals_over(seqid, start, end).map(|s| s.name.clone().unwrap_or_default()).collect()
+    }
+
+    /// The `i`th signal track over `[start, end)`, binned to `bins` maxima.
+    pub fn signal_in(&self, i: usize, seqid: &str, start: f64, end: f64, bins: usize) -> Vec<f32> {
+        self.signals_over(seqid, start, end)
+            .nth(i)
+            .map_or_else(Vec::new, |s| s.binned(seqid, start, end, bins))
+    }
+
+    fn signals_over<'a>(&'a self, seqid: &'a str, start: f64, end: f64) -> impl Iterator<Item = &'a Signal> {
+        self.signals.iter().filter(move |s| {
+            s.spans
+                .iter()
+                .any(|(id, a, b, _)| id == seqid && (*b as f64) > start && (*a as f64) < end)
+        })
+    }
+
+    fn genes_over<'a>(&'a self, seqid: &'a str, start: f64, end: f64) -> impl Iterator<Item = &'a Gene> {
+        self.genes
+            .iter()
+            .filter(move |g| g.seqid == seqid && (g.end as f64) > start && (g.start as f64) < end)
+    }
+
+    fn regions_over<'a>(&'a self, seqid: &'a str, start: f64, end: f64) -> impl Iterator<Item = &'a Feature> {
+        self.regions
+            .iter()
+            .filter(move |r| r.seqid == seqid && (r.end as f64) > start && (r.start as f64) < end)
+    }
+
+    /// Genes overlapping `[start, end)`, each as
+    /// `start, end, strand, cds_start, cds_end, n_exons, (exon_start, exon_end) × n`.
+    /// Strand is 1, -1 or 0; the CDS fields are -1 for a non-coding gene.
+    pub fn genes_in(&self, seqid: &str, start: f64, end: f64) -> Vec<f64> {
+        let mut out = Vec::new();
+        for g in self.genes_over(seqid, start, end) {
+            let (cs, ce) = g.cds.map_or((-1.0, -1.0), |(a, b)| (a as f64, b as f64));
+            out.extend([g.start as f64, g.end as f64, strand_code(g.strand), cs, ce, g.exons.len() as f64]);
+            for &(a, b) in &g.exons {
+                out.extend([a as f64, b as f64]);
+            }
+        }
+        out
+    }
+
+    /// Names for [`Annotations::genes_in`], in the same order.
+    pub fn gene_names_in(&self, seqid: &str, start: f64, end: f64) -> Vec<String> {
+        self.genes_over(seqid, start, end).map(|g| g.name.clone()).collect()
+    }
+
+    /// Regions overlapping `[start, end)`, each as `start, end, strand`.
+    pub fn regions_in(&self, seqid: &str, start: f64, end: f64) -> Vec<f64> {
+        self.regions_over(seqid, start, end)
+            .flat_map(|r| [r.start as f64, r.end as f64, strand_code(r.strand)])
+            .collect()
+    }
+
+    /// Names for [`Annotations::regions_in`], empty where the BED had none.
+    pub fn region_names_in(&self, seqid: &str, start: f64, end: f64) -> Vec<String> {
+        self.regions_over(seqid, start, end)
+            .map(|r| r.name.clone().unwrap_or_default())
+            .collect()
+    }
 }

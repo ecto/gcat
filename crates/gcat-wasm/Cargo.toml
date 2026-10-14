@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 gcat = { workspace = true }
+gcat-align = { workspace = true }
 gcat-io = { workspace = true }
 gcat-viz = { workspace = true }
 wasm-bindgen = "0.2"

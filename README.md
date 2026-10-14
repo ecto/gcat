@@ -30,9 +30,10 @@ at genomics.
 | Crate | What it does |
 |-------|--------------|
 | **`gcat`** | Core types — `Base`, 2-bit packed `Seq`, rolling `Kmer`. `no_std`. |
-| **`gcat-io`** | Streaming FASTA/FASTQ readers and writers. |
+| **`gcat-io`** | Streaming FASTA/FASTQ readers and writers; GFF3, BED and bedGraph annotation. |
 | **`gcat-signal`** | Raw nanopore signal — med/MAD scaling, overlapped windowing, tensor handoff. `no_std`. |
 | **`gcat-viz`** | Visualization kernels — chaos game, GC skew, 2-D histograms. `no_std`. |
+| **`gcat-align`** | Seed-and-chain pairwise alignment, for comparing a region across species. `no_std`. |
 | **`gcat-wasm`** | Browser bindings. Streaming analysis, zero-copy pixel buffers. |
 | **`gcat-cli`** | The `gcat` binary. |
 
@@ -74,7 +75,7 @@ letter sharing its colour with the selection highlight makes both harder to
 read.
 
 An app, not a page: title bar, view rail, status bar, keyboard shortcuts, and
-panes that fill the viewport. `1`–`4` switch views, `/` finds a motif, `g` jumps
+panes that fill the viewport. `1`–`5` switch views, `/` finds a motif, `g` jumps
 to a base, `esc` clears. Palette and last view persist.
 
 Drop a FASTA or FASTQ anywhere in the window. It is read with the File API and
@@ -91,7 +92,7 @@ deviation across the whole sequence — click it to jump.
 Searching lambda for `GAATTC` returns 5 hits, which is exactly how many EcoRI
 sites lambda phage has.
 
-Three more views, all computed in the same pass:
+Three more views, all computed in the same pass, and a dot plot:
 
 **Chaos game k-mer map.** Each base pulls a point halfway toward its corner of
 a square. The usual description makes this sound like a random walk, but after
@@ -109,7 +110,32 @@ reference, no database.
 holds up at ten million reads. Answers the question neither axis answers alone:
 are the long reads also the good ones?
 
-The wasm bundle is 31 KB.
+**Dot plot.** Every 12-mer the open sequence shares with itself, or with a
+species opened after it, binned to a square: a diagonal where they agree, a gap
+or step where one lost sequence, parallel lines for repeats, red lines against
+the grain for inversions. Hover a pixel for both positions. Cat against itself
+shows no repeat linking the two ends of the orange deletion, so it was a clean
+break rather than a slip between repeats.
+
+**Annotation and comparison.** Open a GFF3, BED or bedGraph with a sequence,
+or after it, and a track appears above the editor: genes to scale with exons
+tall where they code for protein, BED regions bracketed with an allele lane
+that splices each one out, and bedGraph read depth beneath a zoom inset. Open
+a second FASTA and it is aligned onto the first in the browser, drawn as a
+percent-identity lane. A header naming a range (`NC_018741.3:110430079-…`, as
+NCBI and faidx write it) puts everything in chromosome coordinates, including
+the editor's offsets. Hover anything on the track for what it is.
+
+**Why orange cats are orange.** The orange-cat sample is 9 kb of cat chrX
+around *ARHGAP36*, carrying the 5,074 bp deletion that two groups found in 2025
+switches the gene on in pigment cells. The deletion is struck through and
+bracketed. Below it, coverage from tiling the orange cat behind the Fca126
+assembly into reads drops to zero over exactly the published coordinates.
+Tiger, dog, human and mouse lanes show most of the deleted stretch is shared
+across mammals. A calico panel beside the track simulates the X-inactivation
+that turns one allele into patches.
+
+The wasm bundle is 121 KB, 58 KB gzipped.
 
 ## Test data
 
@@ -118,7 +144,9 @@ The wasm bundle is 31 KB.
 ```
 
 Pulls four reference genomes from NCBI (~4.8 MB): phiX174, lambda phage,
-SARS-CoV-2, and E. coli K-12. Lambda is the nanopore calibration strand and
+SARS-CoV-2, and E. coli K-12. Plus the orange-cat sample: the cat chrX window,
+its annotation, the orange Fca126 sequence it simulates coverage from, and the
+matching stretch in four other species (~175 KB). Lambda is the nanopore calibration strand and
 phiX174 is the Illumina spike-in control, so both are what a sequencer emits
 when you ask it to prove it works.
 
@@ -181,6 +209,10 @@ increment without a rewrite, for when this moves to `tang-gpu`.
 **A file that will not open is an error.** Reading it as an empty stream would
 make `gcat stats typo.fa` report zero records and exit 0, which is worse than
 useless.
+
+**Alignment fills only short gaps.** Between seeds the aligner runs a global
+alignment, which lines up about half of any two unrelated stretches by chance.
+Filling gaps past 500 bases invents conservation, so longer ones stay blank.
 
 **Degenerate inputs return identity, not NaN.** A constant trace has zero
 deviation. Dividing by it would poison every tensor downstream, so scaling falls

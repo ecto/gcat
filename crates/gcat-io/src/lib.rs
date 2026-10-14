@@ -5,6 +5,8 @@
 //! parsing into [`gcat::Seq`] is the caller's choice, because plenty of work
 //! (grepping, subsetting, counting) never needs it.
 
+pub mod annot;
+
 use gcat::{Base, Seq, SeqError};
 use std::io::{self, BufRead, Write};
 

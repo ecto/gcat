@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/gcat",
+    "crates/gcat-align",
     "crates/gcat-io",
     "crates/gcat-signal",
     "crates/gcat-viz",
@@ -17,6 +18,7 @@ repository = "https://github.com/ecto/gcat"
 
 [workspace.dependencies]
 gcat = { version = "0.1.0", path = "crates/gcat" }
+gcat-align = { version = "0.1.0", path = "crates/gcat-align" }
 gcat-io = { version = "0.1.0", path = "crates/gcat-io" }
 gcat-signal = { version = "0.1.0", path = "crates/gcat-signal" }
 gcat-viz = { version = "0.1.0", path = "crates/gcat-viz" }
